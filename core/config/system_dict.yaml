@@ -1,0 +1,282 @@
+# FATORI-V System Dictionary - Minimal Format
+# Only essential information for FI system
+
+xcku040:
+  # Device bounds for ACME
+  device:
+    min_x: 0
+    max_x: 358
+    min_y: 0
+    max_y: 310
+    wf: 123  # Words per frame (UltraScale)
+  
+  # Fault injection targets
+  # Coordinates are initial estimates - will be refined by upper layer after implementation
+  targets:
+    
+    controller:
+      # Instance: g_ctrl_single.controller_i
+      # Resources: 400 LUTs, 15 FFs
+      x_lo: 50
+      y_lo: 50
+      x_hi: 75
+      y_hi: 65
+      registers: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+      
+    lsu:
+      # Instance: g_lsu_single.load_store_unit_i
+      # Resources: 145 LUTs, 68 FFs
+      x_lo: 100
+      y_lo: 50
+      x_hi: 120
+      y_hi: 60
+      registers: [128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139]
+      
+    id_stage:
+      # Instance: id_stage_i (includes controller as submodule)
+      # Resources: 404 LUTs, 18 FFs
+      x_lo: 150
+      y_lo: 50
+      x_hi: 175
+      y_hi: 65
+      registers: [93, 94, 95, 96, 97, 98]
+      
+    if_stage:
+      # Instance: g_if_single.if_stage_i
+      # Resources: 2197 LUTs, 649 FFs (large - includes I-cache)
+      x_lo: 200
+      y_lo: 100
+      x_hi: 250
+      y_hi: 140
+      registers: [99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127]
+      
+    wb_stage:
+      # Instance: wb_stage_i (if present - not visible in current hierarchy)
+      # Resources: estimated small
+      # Note: May not require pblock if optimized into other modules
+      x_lo: 280
+      y_lo: 50
+      x_hi: 290
+      y_hi: 60
+      registers: [160, 161, 162, 163, 164, 165, 166, 167, 168]
+  
+  # Complete register index
+  # Format: id: {name: "register_name", module: "source_module"}
+  registers:
+    # Fault Manager registers
+    1: {name: "minor_cnt_o", module: "fatori_fault_mgr"}
+    2: {name: "major_cnt_o", module: "fatori_fault_mgr"}
+    3: {name: "minor_seen_o", module: "fatori_fault_mgr"}
+    4: {name: "fault_sticky_o", module: "fatori_fault_mgr"}
+    5: {name: "fetch_en_q", module: "fatori_fault_mgr"}
+    6: {name: "state_q", module: "fatori_fault_mgr"}
+    
+    # Controller registers
+    7: {name: "mem_resp_intg_err_irq_pending_q", module: "ibex_controller"}
+    8: {name: "mem_resp_intg_err_addr_q", module: "ibex_controller"}
+    9: {name: "debug_cause_q", module: "ibex_controller"}
+    10: {name: "ctrl_fsm_cs", module: "ibex_controller"}
+    11: {name: "nmi_mode_q", module: "ibex_controller"}
+    12: {name: "do_single_step_q", module: "ibex_controller"}
+    13: {name: "debug_mode_q", module: "ibex_controller"}
+    14: {name: "enter_debug_mode_prio_q", module: "ibex_controller"}
+    15: {name: "load_err_q", module: "ibex_controller"}
+    16: {name: "store_err_q", module: "ibex_controller"}
+    17: {name: "exc_req_q", module: "ibex_controller"}
+    18: {name: "illegal_insn_q", module: "ibex_controller"}
+    
+    # Core registers (RVFI - formal verification interface)
+    19: {name: "last_fetch_enable", module: "ibex_core"}
+    20: {name: "pc_at_fetch_disable", module: "ibex_core"}
+    21: {name: "rvfi_instr_new_wb_q", module: "ibex_core"}
+    22: {name: "captured_valid", module: "ibex_core"}
+    23: {name: "captured_mip", module: "ibex_core"}
+    24: {name: "captured_nmi", module: "ibex_core"}
+    25: {name: "captured_nmi_int", module: "ibex_core"}
+    26: {name: "captured_debug_req", module: "ibex_core"}
+    27: {name: "rvfi_irq_valid", module: "ibex_core"}
+    28: {name: "rvfi_ext_stage_pre_mip_0", module: "ibex_core"}
+    29: {name: "rvfi_ext_stage_nmi_0", module: "ibex_core"}
+    30: {name: "rvfi_ext_stage_nmi_int_0", module: "ibex_core"}
+    31: {name: "rvfi_ext_stage_debug_req_0", module: "ibex_core"}
+    32: {name: "rvfi_ext_stage_irq_valid_0", module: "ibex_core"}
+    33: {name: "rvfi_stage_halt_reg_0", module: "ibex_core"}
+    34: {name: "rvfi_stage_trap_reg_0", module: "ibex_core"}
+    35: {name: "rvfi_stage_intr_reg_0", module: "ibex_core"}
+    36: {name: "rvfi_stage_order_reg_0", module: "ibex_core"}
+    37: {name: "rvfi_stage_insn_reg_0", module: "ibex_core"}
+    38: {name: "rvfi_stage_mode_reg_0", module: "ibex_core"}
+    39: {name: "rvfi_stage_ixl_reg_0", module: "ibex_core"}
+    40: {name: "rvfi_stage_rs1_addr_reg_0", module: "ibex_core"}
+    41: {name: "rvfi_stage_rs2_addr_reg_0", module: "ibex_core"}
+    42: {name: "rvfi_stage_rs3_addr_reg_0", module: "ibex_core"}
+    43: {name: "rvfi_stage_pc_rdata_reg_0", module: "ibex_core"}
+    44: {name: "rvfi_stage_pc_wdata_reg_0", module: "ibex_core"}
+    45: {name: "rvfi_stage_mem_rmask_reg_0", module: "ibex_core"}
+    46: {name: "rvfi_stage_mem_wmask_reg_0", module: "ibex_core"}
+    47: {name: "rvfi_stage_rs1_rdata_reg_0", module: "ibex_core"}
+    48: {name: "rvfi_stage_rs2_rdata_reg_0", module: "ibex_core"}
+    49: {name: "rvfi_stage_rs3_rdata_reg_0", module: "ibex_core"}
+    50: {name: "rvfi_stage_mem_wdata_reg_0", module: "ibex_core"}
+    51: {name: "rvfi_stage_mem_addr_reg_0", module: "ibex_core"}
+    52: {name: "rvfi_stage_rd_addr_reg_0", module: "ibex_core"}
+    53: {name: "rvfi_stage_rd_wdata_reg_0", module: "ibex_core"}
+    54: {name: "rvfi_stage_mem_rdata_reg_0", module: "ibex_core"}
+    55: {name: "rvfi_ext_stage_debug_mode_reg_0", module: "ibex_core"}
+    56: {name: "rvfi_ext_stage_mcycle_reg_0", module: "ibex_core"}
+    57: {name: "rvfi_ext_stage_ic_scr_key_valid_reg_0", module: "ibex_core"}
+    58: {name: "rvfi_ext_stage_mhpmcounters_reg_0_0", module: "ibex_core"}
+    59: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_0", module: "ibex_core"}
+    60: {name: "rvfi_stage_valid_reg_0", module: "ibex_core"}
+    61: {name: "rvfi_ext_stage_pre_mip_reg_0", module: "ibex_core"}
+    62: {name: "rvfi_ext_stage_post_mip_reg_0", module: "ibex_core"}
+    63: {name: "rvfi_ext_stage_nmi_reg_0", module: "ibex_core"}
+    64: {name: "rvfi_ext_stage_nmi_int_reg_0", module: "ibex_core"}
+    65: {name: "rvfi_ext_stage_debug_req_reg_0", module: "ibex_core"}
+    66: {name: "rvfi_mem_addr", module: "ibex_core"}
+    67: {name: "rvfi_mem_rdata", module: "ibex_core"}
+    68: {name: "rvfi_mem_wdata", module: "ibex_core"}
+    69: {name: "rvfi_rs1_data", module: "ibex_core"}
+    70: {name: "rvfi_rs1_addr", module: "ibex_core"}
+    71: {name: "rvfi_rs2_data", module: "ibex_core"}
+    72: {name: "rvfi_rs2_addr", module: "ibex_core"}
+    73: {name: "rvfi_rd_addr_q", module: "ibex_core"}
+    74: {name: "rvfi_rd_wdata_q", module: "ibex_core"}
+    75: {name: "rvfi_set_trap_pc", module: "ibex_core"}
+    76: {name: "rvfi_intr", module: "ibex_core"}
+    
+    # CS Registers
+    77: {name: "mcountinhibit", module: "ibex_cs_registers"}
+    78: {name: "priv_lvl_q", module: "ibex_cs_registers"}
+    
+    # CSR
+    79: {name: "rdata", module: "ibex_csr"}
+    80: {name: "shadow", module: "ibex_csr"}
+    
+    # Decoder
+    81: {name: "use_rs3", module: "ibex_decoder"}
+    
+    # Dummy Instructions
+    82: {name: "dummy_instr_seed", module: "ibex_dummy_instr"}
+    83: {name: "dummy_cnt", module: "ibex_dummy_instr"}
+    
+    # Fetch FIFO
+    84: {name: "instr_addr", module: "ibex_fetch_fifo"}
+    85: {name: "instr_addr_no_rst", module: "ibex_fetch_fifo"}
+    86: {name: "valid", module: "ibex_fetch_fifo"}
+    87: {name: "rdata_0", module: "ibex_fetch_fifo"}
+    88: {name: "err_0", module: "ibex_fetch_fifo"}
+    89: {name: "rdata_1", module: "ibex_fetch_fifo"}
+    90: {name: "err_1", module: "ibex_fetch_fifo"}
+    91: {name: "rdata_2", module: "ibex_fetch_fifo"}
+    92: {name: "err_2", module: "ibex_fetch_fifo"}
+    
+    # ID Stage registers
+    93: {name: "imd_val_q_reg_0", module: "ibex_id_stage"}
+    94: {name: "imd_val_q_reg_1", module: "ibex_id_stage"}
+    95: {name: "branch_set_raw", module: "ibex_id_stage"}
+    96: {name: "branch_jump_set_done", module: "ibex_id_stage"}
+    97: {name: "branch_taken", module: "ibex_id_stage"}
+    98: {name: "id_fsm_q", module: "ibex_id_stage"}
+    
+    # IF Stage registers
+    99: {name: "dummy_instr_id", module: "ibex_if_stage"}
+    100: {name: "instr_valid_id_q_reg", module: "ibex_if_stage"}
+    101: {name: "instr_new_id_q_reg", module: "ibex_if_stage"}
+    102: {name: "instr_rdata_id", module: "ibex_if_stage"}
+    103: {name: "instr_rdata_alu_id", module: "ibex_if_stage"}
+    104: {name: "instr_fetch_err", module: "ibex_if_stage"}
+    105: {name: "instr_fetch_err_plus2", module: "ibex_if_stage"}
+    106: {name: "instr_rdata_c_id", module: "ibex_if_stage"}
+    107: {name: "instr_is_compressed_id", module: "ibex_if_stage"}
+    108: {name: "illegal_c_insn_id", module: "ibex_if_stage"}
+    109: {name: "pc_id", module: "ibex_if_stage"}
+    110: {name: "instr_rdata_id_no_rst", module: "ibex_if_stage"}
+    111: {name: "instr_rdata_alu_id_no_rst", module: "ibex_if_stage"}
+    112: {name: "instr_fetch_err_no_rst", module: "ibex_if_stage"}
+    113: {name: "instr_fetch_err_plus2_no_rst", module: "ibex_if_stage"}
+    114: {name: "instr_rdata_c_id", module: "ibex_if_stage"}
+    115: {name: "instr_is_compressed_id_no_rst", module: "ibex_if_stage"}
+    116: {name: "illegal_c_insn_id_no_rst", module: "ibex_if_stage"}
+    117: {name: "pc_id", module: "ibex_if_stage"}
+    118: {name: "prev_instr_seq", module: "ibex_if_stage"}
+    119: {name: "instr_bp_taken", module: "ibex_if_stage"}
+    120: {name: "instr_bp_taken_no_rst", module: "ibex_if_stage"}
+    121: {name: "instr_skid_valid_q", module: "ibex_if_stage"}
+    122: {name: "instr_skid_bp_taken_q", module: "ibex_if_stage"}
+    123: {name: "instr_skid_data_q", module: "ibex_if_stage"}
+    124: {name: "instr_skid_addr_q", module: "ibex_if_stage"}
+    125: {name: "instr_skid_bp_taken_q_no_rst", module: "ibex_if_stage"}
+    126: {name: "instr_skid_data_q_no_rst", module: "ibex_if_stage"}
+    127: {name: "instr_skid_addr_q_no_rst", module: "ibex_if_stage"}
+    
+    # Load Store Unit registers
+    128: {name: "rdata", module: "ibex_load_store_unit"}
+    129: {name: "rdata_offset", module: "ibex_load_store_unit"}
+    130: {name: "data_type", module: "ibex_load_store_unit"}
+    131: {name: "data_sign_ext", module: "ibex_load_store_unit"}
+    132: {name: "data_we", module: "ibex_load_store_unit"}
+    133: {name: "addr_last", module: "ibex_load_store_unit"}
+    134: {name: "ls_fsm_cs", module: "ibex_load_store_unit"}
+    135: {name: "handle_misaligned", module: "ibex_load_store_unit"}
+    136: {name: "pmp_err", module: "ibex_load_store_unit"}
+    137: {name: "lsu_err", module: "ibex_load_store_unit"}
+    138: {name: "fcov_mis_2_en", module: "ibex_load_store_unit"}
+    139: {name: "fcov_mis_bus_err_1", module: "ibex_load_store_unit"}
+    
+    # Lockstep registers (if enabled)
+    140: {name: "shadow_inputs_0", module: "ibex_lockstep"}
+    141: {name: "shadow_inputs_1", module: "ibex_lockstep"}
+    142: {name: "shadow_tag_rdata_0", module: "ibex_lockstep"}
+    143: {name: "shadow_data_rdata_0", module: "ibex_lockstep"}
+    144: {name: "shadow_tag_rdata_1", module: "ibex_lockstep"}
+    145: {name: "shadow_data_rdata_1", module: "ibex_lockstep"}
+    
+    # Prefetch Buffer registers
+    146: {name: "stored_addr", module: "ibex_prefetch_buffer"}
+    147: {name: "fetch_addr", module: "ibex_prefetch_buffer"}
+    148: {name: "valid_req", module: "ibex_prefetch_buffer"}
+    149: {name: "discard_req", module: "ibex_prefetch_buffer"}
+    150: {name: "rdata_outstanding", module: "ibex_prefetch_buffer"}
+    151: {name: "branch_discard", module: "ibex_prefetch_buffer"}
+    
+    # Top module registers
+    152: {name: "core_busy", module: "ibex_top"}
+    153: {name: "scramble_key", module: "ibex_top"}
+    154: {name: "scramble_nonce", module: "ibex_top"}
+    155: {name: "scramble_key_valid", module: "ibex_top"}
+    156: {name: "scramble_req", module: "ibex_top"}
+    157: {name: "sampled_scramble_key", module: "ibex_top"}
+    158: {name: "pending_dside_accesses_0", module: "ibex_top"}
+    159: {name: "pending_dside_accesses_1", module: "ibex_top"}
+    
+    # Writeback Stage registers
+    160: {name: "wb_valid", module: "ibex_wb_stage"}
+    161: {name: "rf_we_wb", module: "ibex_wb_stage"}
+    162: {name: "rf_waddr_wb", module: "ibex_wb_stage"}
+    163: {name: "rf_wdata_wb", module: "ibex_wb_stage"}
+    164: {name: "wb_instr_type", module: "ibex_wb_stage"}
+    165: {name: "wb_pc", module: "ibex_wb_stage"}
+    166: {name: "wb_compressed", module: "ibex_wb_stage"}
+    167: {name: "wb_count", module: "ibex_wb_stage"}
+    168: {name: "dummy_instr_wb", module: "ibex_wb_stage"}
+    
+    # Additional core registers
+    169: {name: "rvfi_ext_stage_mhpmcounters_reg_0_1", module: "ibex_core"}
+    170: {name: "rvfi_ext_stage_mhpmcounters_reg_0_2", module: "ibex_core"}
+    171: {name: "rvfi_ext_stage_mhpmcounters_reg_0_3", module: "ibex_core"}
+    172: {name: "rvfi_ext_stage_mhpmcounters_reg_0_4", module: "ibex_core"}
+    173: {name: "rvfi_ext_stage_mhpmcounters_reg_0_5", module: "ibex_core"}
+    174: {name: "rvfi_ext_stage_mhpmcounters_reg_0_6", module: "ibex_core"}
+    175: {name: "rvfi_ext_stage_mhpmcounters_reg_0_7", module: "ibex_core"}
+    176: {name: "rvfi_ext_stage_mhpmcounters_reg_0_8", module: "ibex_core"}
+    177: {name: "rvfi_ext_stage_mhpmcounters_reg_0_9", module: "ibex_core"}
+    178: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_1", module: "ibex_core"}
+    179: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_2", module: "ibex_core"}
+    180: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_3", module: "ibex_core"}
+    181: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_4", module: "ibex_core"}
+    182: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_5", module: "ibex_core"}
+    183: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_6", module: "ibex_core"}
+    184: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_7", module: "ibex_core"}
+    185: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_8", module: "ibex_core"}
+    186: {name: "rvfi_ext_stage_mhpmcountersh_reg_0_9", module: "ibex_core"}

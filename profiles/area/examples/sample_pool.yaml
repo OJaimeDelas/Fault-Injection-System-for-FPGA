@@ -1,0 +1,67 @@
+# =============================================================================
+# Sample Target Pool File
+# -----------------------------------------------------------------------------
+# This file demonstrates the format for explicit target pools used with
+# the target_list area profile.
+#
+# Usage:
+#   python -m fi.fault_injection \
+#       --area target_list \
+#       --area-args "pool_file=sample_pool.yaml"
+# =============================================================================
+
+targets:
+  # Configuration bit targets (logic/LUTs/routing)
+  - kind: CONFIG
+    module_name: "alu"
+    config_address: "00001234"
+    pblock_name: "alu_pb"
+  
+  - kind: CONFIG
+    module_name: "alu"
+    config_address: "00001236"
+    pblock_name: "alu_pb"
+  
+  - kind: CONFIG
+    module_name: "lsu"
+    config_address: "00005678"
+    pblock_name: "lsu_pb"
+  
+  - kind: CONFIG
+    module_name: "lsu"
+    config_address: "0000567A"
+    pblock_name: "lsu_pb"
+  
+  - kind: CONFIG
+    module_name: "decoder"
+    config_address: "00009ABC"
+    pblock_name: "decoder_pb"
+  
+  # Register targets (flip-flops in the design)
+  - kind: REG
+    module_name: "alu"
+    reg_id: 0
+    reg_name: "alu_out"
+  
+  - kind: REG
+    module_name: "alu"
+    reg_id: 1
+    reg_name: "alu_acc"
+  
+  - kind: REG
+    module_name: "lsu"
+    reg_id: 2
+    reg_name: "lsu_addr"
+  
+  - kind: REG
+    module_name: "decoder"
+    reg_id: 5
+    reg_name: "dec_rec_q"
+  
+  - kind: REG
+    module_name: "decoder"
+    reg_id: 6
+    reg_name: "dec_state"
+
+# Total: 5 CONFIG targets + 5 REG targets = 10 targets
+# Injection order: sequential (as listed above)

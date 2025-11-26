@@ -1,0 +1,237 @@
+# Area Profiles — WHERE to Inject
+
+Area profiles decide which targets to inject into by building a TargetPool.
+The pool is built upfront with targets in injection order.
+
+## API Contract
+
+Every area profile module must define:
+
+### Module-Level Exports
+```python
+PROFILE_KIND = "area"  # Always "area"
+PROFILE_NAME = "myprofile"  # Unique name (optional, defaults to filename)
+
+def describe() -> str:
+    """Human-readable description of what this profile does."""
+    return "My custom injection strategy"
+
+def default_args() -> Dict[str, Any]:
+    """Default argument values for this profile."""
+    return {
+        "param1": default_value1,
+        "param2": default_value2,
+        # Common args: seed, ratio, repetition, mode, include, exclude
+    }
+
+def make_profile(args: Dict[str, Any], *, global_seed, settings) -> AreaProfileBase:
+    """
+    Factory function to create profile instance.
+    
+    Args:
+        args: Argument dict (CLI args merged with defaults)
+        global_seed: Master seed for reproducibility (or None)
+        settings: fi_settings module
+    
+    Returns:
+        Profile instance
+    """
+    merged = default_args()
+    merged.update(args)
+    return MyProfile(name=PROFILE_NAME, args=merged, global_seed=global_seed)
+```
+
+### Profile Instance
+
+The profile class must extend `AreaProfileBase` and implement:
+```python
+class MyProfile(AreaProfileBase):
+    def build_pool(self, system_dict, board_name, ebd_path) -> TargetPool:
+        """
+        Build complete TargetPool for injection.
+        
+        This method should:
+        1. Extract data from system_dict (modules, registers, pblocks)
+        2. Generate/expand targets (call ACME for logic addresses)
+        3. Apply selection strategy (module order, ratio, etc.)
+        4. Return TargetPool with targets in final injection order
+        
+        Returns:
+            TargetPool ready for injection
+        """
+        pool = TargetPool()
+        # ... build logic ...
+        return pool
+```
+
+## Common Arguments
+
+These arguments are supported by most area profiles:
+
+- **seed** (int): Override seed for this profile (for reproducibility)
+- **ratio** (float): Reg probability (0.0=all logic, 1.0=all reg)
+- **repetition** (bool): Allow same target multiple times
+
+Module-based profiles also support:
+
+- **include** (str): Comma-separated module names to include
+- **exclude** (str): Comma-separated modules to exclude
+- **mode** (str): sequential, round_robin, random, weighted
+- **weights** (str): For weighted mode, e.g., "alu:3,lsu:1,decoder:2"
+- **pool_size** (int): Limit total number of targets
+
+## Built-in Profiles
+
+- **modules**: Inject into specific modules with two-level selection
+- **device**: Inject into entire device (all config bits)
+- **target_list**: Load explicit pool from YAML file
+- **address_list**: Load address list from text file (legacy)
+
+## Utilities
+
+### ModuleSelector (common/module_selection.py)
+
+Handles module selection strategies:
+```python
+from fi.profiles.area.module_selection import ModuleSelector
+
+selector = ModuleSelector(
+    modules=["alu", "lsu", "decoder"],
+    mode="round_robin",  # or sequential, random, weighted
+    weights={"alu": 3, "lsu": 1},  # for weighted mode
+    rng=self.rng
+)
+
+module = selector.next_module()  # Get next module
+```
+
+**Modes:**
+- **sequential**: Exhausts each module before moving to next
+- **round_robin**: Cycles through modules one at a time
+- **random**: Uniform random selection
+- **weighted**: Random with configurable weights
+
+### RatioSelector (common/ratio_utils.py)
+
+Handles probabilistic reg/logic selection:
+```python
+from fi.profiles.area.ratio_utils import RatioSelector
+
+selector = RatioSelector(ratio=0.25, rng=self.rng)  # 25% reg, 75% logic
+
+if selector.should_select_reg():
+    target = pick_from(reg_targets)
+else:
+    target = pick_from(logic_targets)
+```
+
+**Ratio interpretation:**
+- 0.0: All logic (CONFIG targets)
+- 0.5: 50/50 mix
+- 1.0: All registers (REG targets)
+
+## Writing a New Profile
+
+1. Create `myprofile.py` in `fi/profiles/area/`
+2. Implement the API contract (PROFILE_NAME, describe, default_args, make_profile)
+3. Extend AreaProfileBase and implement build_pool()
+4. Use base class utilities (self.rng for randomness)
+5. Use ModuleSelector and RatioSelector if needed
+6. Profile is auto-discovered by profile_loader
+
+### Example
+```python
+# fi/profiles/area/simple_random.py
+
+from fi.profiles.area.base import AreaProfileBase
+from fi.targets.pool import TargetPool
+from fi.targets.types import TargetSpec, TargetKind
+from fi.targets.acme_sem_decoder import expand_pblock_to_config_bits
+
+PROFILE_KIND = "area"
+PROFILE_NAME = "simple_random"
+
+def describe():
+    return "Randomly select targets from all modules"
+
+def default_args():
+    return {
+        "count": 100,  # How many targets
+        "seed": None
+    }
+
+def make_profile(args, *, global_seed, settings):
+    merged = default_args()
+    merged.update(args)
+    return SimpleRandomProfile(
+        name=PROFILE_NAME,
+        args=merged,
+        global_seed=global_seed
+    )
+
+class SimpleRandomProfile(AreaProfileBase):
+    def build_pool(self, system_dict, board_name, ebd_path):
+        pool = TargetPool()
+        board_dict = system_dict.boards[board_name]
+        count = self.args["count"]
+        
+        # Collect all possible targets
+        all_targets = []
+        for module_name, module_info in board_dict.modules.items():
+            # Add register targets
+            for reg_id in module_info.registers:
+                all_targets.append(TargetSpec(
+                    kind=TargetKind.REG,
+                    module_name=module_name,
+                    reg_id=reg_id,
+                    source="profile:simple_random"
+                ))
+            
+            # Add logic targets via ACME
+            addresses = expand_pblock_to_config_bits(
+                region=module_info.pblock.region,
+                board_name=board_name,
+                ebd_path=ebd_path
+            )
+            for addr in addresses:
+                all_targets.append(TargetSpec(
+                    kind=TargetKind.CONFIG,
+                    module_name=module_name,
+                    config_address=addr,
+                    pblock_name=module_info.pblock.name,
+                    source="profile:simple_random"
+                ))
+        
+        # Randomly sample targets
+        selected = self.rng.sample(all_targets, min(count, len(all_targets)))
+        for target in selected:
+            pool.add(target)
+        
+        return pool
+```
+
+## Testing Profiles
+
+Test your profile with:
+```bash
+python -m fi.fault_injection \
+    --area myprofile \
+    --area-args "param1=value1,param2=value2" \
+    --system-dict path/to/dict.yaml
+```
+
+## Seed Management
+
+Each profile gets its own RNG for reproducibility:
+```python
+# In build_pool(), use self.rng for all random operations
+module = self.rng.choice(modules)
+target = self.rng.sample(targets, 10)
+```
+
+Seed derivation hierarchy:
+1. Explicit `--area-seed` (highest priority)
+2. Derived from `--global-seed` via hash
+3. Random seed (if no seeds provided)
+
+Same seed → same pool every time.

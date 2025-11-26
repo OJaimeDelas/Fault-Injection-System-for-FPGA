@@ -1,0 +1,106 @@
+# Pool File Format Documentation
+
+Pool files are YAML files that explicitly list injection targets for the `target_list` area profile.
+
+## Format
+
+```yaml
+targets:
+  - kind: CONFIG      # or REG
+    module_name: "alu"
+    config_address: "00001234"  # For CONFIG targets
+    pblock_name: "alu_pb"       # Optional
+  
+  - kind: REG
+    module_name: "decoder"
+    reg_id: 5                   # For REG targets
+    reg_name: "dec_rec_q"       # Optional
+```
+
+## Required Fields
+
+### All Targets
+- `kind`: "CONFIG" or "REG"
+- `module_name`: Module this target belongs to
+
+### CONFIG Targets (kind: CONFIG)
+- `config_address`: Hex address string (e.g., "00001234")
+
+### REG Targets (kind: REG)  
+- `reg_id`: Integer register ID
+
+## Optional Fields
+
+- `pblock_name`: Pblock name (CONFIG targets only)
+- `reg_name`: Human-readable register name (REG targets only)
+
+## Usage
+
+```bash
+# Use default sample pool
+python -m fi.fault_injection --area target_list
+
+# Use custom pool file
+python -m fi.fault_injection \
+    --area target_list \
+    --area-args "pool_file=/path/to/my_targets.yaml"
+```
+
+## Examples
+
+### Minimal Example
+```yaml
+targets:
+  - kind: CONFIG
+    module_name: "alu"
+    config_address: "00001234"
+  
+  - kind: REG
+    module_name: "decoder"
+    reg_id: 5
+```
+
+### Full Example with Optional Fields
+```yaml
+targets:
+  - kind: CONFIG
+    module_name: "alu"
+    config_address: "00001234"
+    pblock_name: "alu_pb"
+  
+  - kind: REG
+    module_name: "decoder"
+    reg_id: 5
+    reg_name: "dec_rec_q"
+```
+
+## Common Errors
+
+### Missing required field
+```yaml
+# ERROR: CONFIG target missing config_address
+- kind: CONFIG
+  module_name: "alu"
+  # config_address is required!
+```
+
+### Invalid kind
+```yaml
+# ERROR: kind must be CONFIG or REG
+- kind: LOGIC  # Invalid!
+  module_name: "alu"
+```
+
+### Wrong field for kind
+```yaml
+# ERROR: CONFIG targets use config_address, not reg_id
+- kind: CONFIG
+  module_name: "alu"
+  reg_id: 5  # Wrong! Use config_address
+```
+
+## File Location
+
+Default location: `fi/config/sample_pool.yaml`
+
+You can place pool files anywhere and reference them with absolute or relative paths.
