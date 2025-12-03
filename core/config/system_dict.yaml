@@ -22,6 +22,7 @@ xcku040:
       x_hi: 75
       y_hi: 65
       registers: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+      module: ibex_controller
       
     lsu:
       # Instance: g_lsu_single.load_store_unit_i
@@ -31,6 +32,7 @@ xcku040:
       x_hi: 120
       y_hi: 60
       registers: [128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139]
+      module: ibex_load_store_unit
       
     id_stage:
       # Instance: id_stage_i (includes controller as submodule)
@@ -40,6 +42,7 @@ xcku040:
       x_hi: 175
       y_hi: 65
       registers: [93, 94, 95, 96, 97, 98]
+      module: ibex_id_stage
       
     if_stage:
       # Instance: g_if_single.if_stage_i
@@ -49,6 +52,7 @@ xcku040:
       x_hi: 250
       y_hi: 140
       registers: [99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127]
+      module: ibex_if_stage
       
     wb_stage:
       # Instance: wb_stage_i (if present - not visible in current hierarchy)
@@ -59,6 +63,7 @@ xcku040:
       x_hi: 290
       y_hi: 60
       registers: [160, 161, 162, 163, 164, 165, 166, 167, 168]
+      module: ibex_wb_stage
   
   # Complete register index
   # Format: id: {name: "register_name", module: "source_module"}

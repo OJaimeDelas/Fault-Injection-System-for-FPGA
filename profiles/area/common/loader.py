@@ -45,6 +45,12 @@ def _parse_arg_csv(csv: str) -> Dict[str, str]:
         key, value = item.split("=", 1)
         key = key.strip()
         value = value.strip()
+
+        # Convert + separator back to comma for list values
+        # This allows: targets=controller+lsu to become targets="controller,lsu"
+        if '+' in value:
+            value = value.replace('+', ',')
+
         if not key:
             # Ignore malformed pieces without a key
             continue

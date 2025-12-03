@@ -21,17 +21,21 @@ from fi.core.config.seed_manager import (
 def _parse_arg_csv(csv: str) -> Dict[str, str]:
     """
     Parse a simple comma-separated "k=v" list into a dictionary.
-
+    
+    Supports list values using + as separator (e.g., targets=a+b+c).
+    
     Examples:
-        "rate_hz=5,duration_s=60"
-        "lambda=10.0,duration_s=120"
-
+        "path=addresses.txt,order=sequential"
+        "ratio=0.5,modules=3"
+        "targets=controller+lsu+if_stage,ratio=0.5"
+    
     Whitespace around keys and values is stripped. Empty strings map to {}.
+    List values use + separator, which gets converted back to comma in the value.
     """
     result: Dict[str, str] = {}
     if not csv:
         return result
-
+    
     parts = csv.split(",")
     for raw in parts:
         item = raw.strip()
@@ -45,6 +49,11 @@ def _parse_arg_csv(csv: str) -> Dict[str, str]:
         key, value = item.split("=", 1)
         key = key.strip()
         value = value.strip()
+
+        # Convert + separator back to comma for list values
+        if '+' in value:
+            value = value.replace('+', ',')
+
         if not key:
             # Ignore malformed pieces without a key
             continue

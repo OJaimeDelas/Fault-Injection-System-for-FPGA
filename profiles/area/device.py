@@ -8,6 +8,7 @@
 from typing import Dict, Any
 
 from fi.profiles.area.base import AreaProfileBase
+from fi.profiles.area.common.ratio_selector import RatioSelector
 from fi.targets.pool import TargetPool
 from fi.targets.types import TargetSpec, TargetKind
 from fi.backend.acme.decoder import expand_device_to_config_bits
@@ -39,9 +40,11 @@ def default_args() -> Dict[str, Any]:
         Dict of default arguments
     """
     return {
-        "mode": "sequential",  # sequential, shuffled, random
-        "seed": None,          # Override seed
-        "sample_size": None,   # Optional: limit number of addresses
+        "mode": "sequential",    # sequential, random
+        "ratio": 0.5,           # Proportion of REG targets (0.0-1.0)
+        "repeat": True,         # Allow target repetition
+        "tpool_size": 200,      # Pool size when repeat=True
+        "sample_size": None,    # Optional: limit number of CONFIG addresses from ACME
     }
 
 
@@ -50,18 +53,16 @@ def make_profile(args: Dict[str, Any], *, global_seed, settings) -> AreaProfileB
     Factory function to create profile instance.
     
     Args:
-        args: Argument dict (CLI args merged with defaults)
-        global_seed: Master seed for reproducibility (or None)
-        settings: fi_settings module
+        args: Profile arguments from CLI
+        global_seed: Global RNG seed for reproducibility
+        settings: FI settings object
     
     Returns:
-        DeviceAreaProfile instance
+        DeviceProfile instance
     """
-    merged = default_args()
-    merged.update(args)
-    return DeviceAreaProfile(
+    return DeviceProfile(
         name=PROFILE_NAME,
-        args=merged,
+        args=args,
         global_seed=global_seed
     )
 
@@ -70,39 +71,45 @@ def make_profile(args: Dict[str, Any], *, global_seed, settings) -> AreaProfileB
 # Profile implementation
 # -----------------------------------------------------------------------------
 
-class DeviceAreaProfile(AreaProfileBase):
+class DeviceProfile(AreaProfileBase):
     """
-    Area profile for device-wide injection.
+    Device-wide fault injection profile with ratio and repeat support.
     
-    This profile injects across the entire FPGA device by:
-    1. Getting full_device_region from SystemDict
-    2. Expanding it to all configuration bit addresses via ACME
-    3. Adding all registers from all modules
-    4. Optionally sampling and reordering
+    This profile targets the entire FPGA device by:
+    1. Expanding full device bounds to ALL configuration bit addresses via ACME
+    2. Collecting ALL registers from ALL targets in the system dict
+    3. Intermixing CONFIG and REG targets based on ratio parameter
+    4. Supporting repeat mode for infinite pools
     
-    This provides comprehensive fault injection coverage across both
-    configuration memory and register state.
+    Arguments:
+        mode: Ordering mode (sequential, random) - can also use "order"
+        ratio: Proportion of REG targets (0.0=all CONFIG, 1.0=all REG, 0.5=equal)
+        repeat: Allow target repetition (True=infinite pool, False=exhaust targets)
+        tpool_size: Target pool size (only used when repeat=True)
+        sample_size: Optional limit on number of CONFIG addresses from ACME
     """
     
-    def build_pool(self, system_dict, board_name: str, ebd_path: str):
+    def build_pool(self, system_dict, board_name: str, ebd_path: str, cfg) -> TargetPool:
         """
-        Build TargetPool with device-wide CONFIG targets + all registers.
+        Build TargetPool for entire device with ratio and repeat support.
         
-        Process:
-        1. Get full_device_region from board dictionary
-        2. Expand to all config bit addresses via ACME
-        3. Optionally sample if sample_size specified
-        4. Apply ordering mode (sequential/shuffled/random)
-        5. Build TargetPool with CONFIG targets
-        6. Add ALL registers from ALL modules
+        High-level algorithm:
+        1. Get device bounds from SystemDict
+        2. Expand full device to ALL config bits via ACME
+        3. Build ALL CONFIG targets
+        4. Build ALL register targets
+        5. Order each group based on mode (sequential or shuffle)
+        6. Intermix CONFIG and REG targets using RatioSelector
+        7. Add to pool in final order
         
         Args:
             system_dict: SystemDict with board dictionaries
             board_name: Resolved board name
             ebd_path: Path to EBD file
+            cfg: Config instance with tpool settings
         
         Returns:
-            TargetPool with device-wide CONFIG targets + all registers
+            TargetPool with device-wide targets in specified order
         """
         # Get board dictionary
         if board_name not in system_dict.boards:
@@ -110,63 +117,106 @@ class DeviceAreaProfile(AreaProfileBase):
         
         board_dict = system_dict.boards[board_name]
         
-        # Get full device region from SystemDict
-        full_region = board_dict.full_device_region
+        # Get device bounds as coordinate dict
+        device_coords = {
+            'x_lo': board_dict.device.min_x,
+            'y_lo': board_dict.device.min_y,
+            'x_hi': board_dict.device.max_x,
+            'y_hi': board_dict.device.max_y
+        }
         
         # Expand entire device to configuration bit addresses via ACME
         addresses = expand_device_to_config_bits(
-            full_device_region=full_region,
+            device_coords=device_coords,
             board_name=board_name,
-            ebd_path=ebd_path
+            ebd_path=ebd_path,
+            use_cache=cfg.acme_cache_enabled,
+            cache_dir=cfg.acme_cache_dir
         )
         
-        # Optional sampling to limit pool size
+        # Optional sampling to limit CONFIG addresses
         sample_size = self.args.get("sample_size")
         if sample_size is not None:
             sample_size = int(sample_size)
             if len(addresses) > sample_size:
                 addresses = self.rng.sample(addresses, sample_size)
         
-        # Apply ordering mode
-        mode = self.args.get("mode", "sequential")
-        if mode == "shuffled":
-            # Shuffle addresses before building pool
-            self.rng.shuffle(addresses)
-        elif mode == "random":
-            # Random order (same as shuffled, just different name)
-            self.rng.shuffle(addresses)
-        # sequential mode: keep addresses in original order
-        
-        # Build pool with all addresses as CONFIG targets
-        pool = TargetPool()
+        # Build list of ALL CONFIG targets
+        all_config_targets = []
         for addr in addresses:
-            pool.add(TargetSpec(
+            all_config_targets.append(TargetSpec(
                 kind=TargetKind.CONFIG,
-                module_name="device",  # Device-wide (no specific module)
+                module_name="device",
                 config_address=addr,
-                pblock_name=None,      # Device-wide (no specific pblock)
+                pblock_name=None,
                 source="profile:device"
             ))
         
-        # Add ALL registers from ALL modules to pool
-        for module_name, module_info in board_dict.modules.items():
-            for reg_id in module_info.registers:
-                # Find register name from board's register list
-                reg_name = None
-                for reg_info in board_dict.registers:
-                    if reg_info.reg_id == reg_id:
-                        reg_name = reg_info.name
-                        break
-                
-                # Add register target to pool
-                pool.add(TargetSpec(
-                    kind=TargetKind.REG,
-                    module_name=module_name,
-                    reg_id=reg_id,
-                    reg_name=reg_name,
-                    source="profile:device",
-                    tags=["register"]  # Tag to distinguish from CONFIG targets
-                ))
+        # Build list of ALL register targets from complete register index
+        # Device profile injects into EVERYTHING, so use all registers in system_dict
+        all_reg_targets = []
+        for reg_id, reg_info in board_dict.registers.items():
+            all_reg_targets.append(TargetSpec(
+                kind=TargetKind.REG,
+                module_name=reg_info.module,  # Use module from register info
+                reg_id=reg_id,
+                reg_name=reg_info.name,
+                source="profile:device"
+            ))
         
+        # Apply ordering mode to each group separately
+        # Accept both "order" and "mode" as parameter names (order takes priority)
+        mode = self.args.get("order") or self.args.get("mode", "sequential")
+
+        if mode == "random":
+            # Shuffle each group independently using seeded RNG
+            self.rng.shuffle(all_config_targets)
+            self.rng.shuffle(all_reg_targets)
+        # sequential mode: keep in SystemDict order (no shuffle)
+        
+        # Parse ratio and repeat parameters
+        ratio = float(self.args.get("ratio", 0.5))
+        repeat = self.args.get("repeat", True)
+        if isinstance(repeat, str):
+            repeat = repeat.lower() in ("true", "1", "yes", "on")
+        
+        from fi import fi_settings
+        
+        # Parse tpool_size from args (always parse it, regardless of repeat mode)
+        tpool_size_arg = self.args.get("tpool_size")
+        if tpool_size_arg is not None:
+            tpool_size = int(tpool_size_arg)
+        elif repeat:
+            # Use default from settings only in repeat mode
+            tpool_size = fi_settings.TPOOL_DEFAULT_SIZE
+        else:
+            tpool_size = None
+        
+        # Use RatioSelector to intermix CONFIG and REG respecting ratio
+        selector = RatioSelector(
+            ratio=ratio,
+            repeat=repeat,
+            rng=self.rng,
+            target_count=tpool_size,
+            cfg=cfg,
+            ratio_strict=cfg.ratio_strict if cfg else False
+        )
+        
+        # Build intermixed pool
+        if mode == "random":
+            intermixed_targets = selector.build_random_intermixed_pool(
+                config_targets=all_config_targets,
+                reg_targets=all_reg_targets
+            )
+        else:
+            intermixed_targets = selector.build_sequential_intermixed_pool(
+                config_targets=all_config_targets,
+                reg_targets=all_reg_targets
+            )
+        
+        # Build final pool
+        pool = TargetPool()
+        for target in intermixed_targets:
+            pool.add(target)
         
         return pool

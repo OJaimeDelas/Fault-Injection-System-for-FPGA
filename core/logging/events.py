@@ -25,6 +25,10 @@ _log_file_handle = None
 _log_config = None
 
 
+# Campaign start time for relative timestamps
+# Set when log file is opened
+_campaign_start_time = None
+
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
@@ -88,7 +92,10 @@ def setup_log_file(log_root: str, log_filename: str):
         log_root: Directory path where log file should be created
         log_filename: Name of the log file (no path, just filename)
     """
-    global _log_file_handle
+    global _log_file_handle, _campaign_start_time
+
+    import time
+    _campaign_start_time = time.time()  # Record campaign start
     
     from pathlib import Path
     
@@ -98,7 +105,7 @@ def setup_log_file(log_root: str, log_filename: str):
     
     # Open log file in append mode
     log_path = log_dir / log_filename
-    _log_file_handle = open(log_path, 'a', encoding='utf-8')
+    _log_file_handle = open(log_path, 'w', encoding='utf-8')
     
     # Write header to separate campaigns in log file
     _write_log_header()
@@ -117,6 +124,8 @@ def close_log_file():
         _log_file_handle.close()
         _log_file_handle = None
 
+    _campaign_start_time = None
+
 
 def _write_log_header():
     """
@@ -133,7 +142,7 @@ def _write_log_header():
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     separator = "=" * 78
     
-    _log_file_handle.write(f"\n{separator}\n")
+    _log_file_handle.write(f"{separator}\n")
     _log_file_handle.write(f"CAMPAIGN SESSION STARTED: {timestamp}\n")
     _log_file_handle.write(f"{separator}\n\n")
     _log_file_handle.flush()
@@ -145,9 +154,26 @@ def _write_log_header():
 
 def _write_to_file(msg: str):
     """Write message to log file."""
-    if _log_file_handle is not None:
+    if _log_file_handle is None:
+        return
+    
+    # Calculate relative time since campaign start
+    if _campaign_start_time is not None:
+        import time
+        elapsed = time.time() - _campaign_start_time
+        
+        # Format as HH:MM:SS.mmm
+        hours = int(elapsed // 3600)
+        minutes = int((elapsed % 3600) // 60)
+        seconds = elapsed % 60
+        
+        timestamp = f"[{hours:02d}:{minutes:02d}:{seconds:09.6f}]"
+        _log_file_handle.write(f"{timestamp} {msg}\n")
+    else:
+        # No start time set - write without timestamp
         _log_file_handle.write(msg + "\n")
-        _log_file_handle.flush()
+    
+    _log_file_handle.flush()
 
 
 def _write_to_console(msg: str):
@@ -185,30 +211,30 @@ def log_startup(config):
         _write_to_console(msg)
 
 
-def log_campaign_end(stats: Dict[str, int]):
+def log_campaign_end(stats: Dict[str, int], termination_reason: str = "unknown"):
     """
-    Log campaign completion.
+    Log campaign completion with termination reason.
     
     Called at the end of a campaign to record final statistics and mark
     the end of the session.
     
     Args:
         stats: Dictionary with campaign statistics (total, successes, failures)
+        termination_reason: Why the campaign ended (e.g., "Target pool exhausted")
     """
     # Check if event should be logged at current level
     to_console, to_file = _should_log_event('campaign_footer')
     if not to_console and not to_file:
         return
     
-    # Format campaign end message
-    msg = message_formats.format_campaign_end(stats)
+    # Format campaign end message with termination reason
+    msg = message_formats.format_campaign_end(stats, termination_reason)
     
     # Write to destinations
     if to_file:
         _write_to_file(msg)
     if to_console:
         _write_to_console(msg)
-
 
 # -----------------------------------------------------------------------------
 # System initialization events
@@ -322,6 +348,96 @@ def log_acme_cache_hit(region: str, count: int):
     if to_console:
         _write_to_console(msg)
 
+def log_sync_waiting(sync_file: str):
+    """
+    Log benchmark sync waiting.
+    
+    Records when the campaign is waiting for a benchmark to signal ready
+    by creating a sync file.
+    
+    Args:
+        sync_file: Path to the sync file being waited for
+    """
+    # Check if event should be logged at current level
+    to_console, to_file = _should_log_event('sync_waiting')
+    if not to_console and not to_file:
+        return
+    
+    # Format message
+    msg = message_formats.format_sync_waiting(sync_file)
+    
+    # Write to destinations
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_sync_ready():
+    """
+    Log benchmark ready signal detected.
+    
+    Records when the sync file appears and the campaign can start.
+    """
+    # Check if event should be logged at current level
+    to_console, to_file = _should_log_event('sync_ready')
+    if not to_console and not to_file:
+        return
+    
+    # Format message
+    msg = message_formats.format_sync_ready()
+    
+    # Write to destinations
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_sync_timeout(timeout: float):
+    """
+    Log sync timeout.
+    
+    Records when waiting for the benchmark signal times out.
+    
+    Args:
+        timeout: Timeout duration in seconds
+    """
+    # Check if event should be logged at current level
+    to_console, to_file = _should_log_event('sync_timeout')
+    if not to_console and not to_file:
+        return
+    
+    # Format message
+    msg = message_formats.format_sync_timeout(timeout)
+    
+    # Write to destinations
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_sync_stopped():
+    """
+    Log benchmark stopped signal.
+    
+    Records when the sync file disappears during campaign execution,
+    indicating the benchmark has stopped and the campaign should terminate.
+    """
+    # Check if event should be logged at current level
+    to_console, to_file = _should_log_event('sync_stopped')
+    if not to_console and not to_file:
+        return
+    
+    # Format message
+    msg = message_formats.format_sync_stopped()
+    
+    # Write to destinations
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
 
 def log_pool_built(stats: Dict, profile_name: str):
     """
@@ -355,21 +471,32 @@ def log_pool_built(stats: Dict, profile_name: str):
 
 def log_injection(target, success: bool, timestamp: float = None):
     """
-    Log individual injection event.
+    Log individual injection event with precise timestamp.
     
-    Records each injection attempt with the target specification and whether
-    it succeeded or failed. This is a high-frequency event (one per injection).
+    Timestamp capture priority:
+    1. Use provided timestamp (captured at injection moment)
+    2. Fallback to current time only if timestamp not provided
+    
+    The timestamp parameter allows the injection moment to be accurately
+    recorded even if logging happens slightly later. This is critical for
+    time profiles that need precise injection timing records.
     
     Args:
         target: TargetSpec being injected
         success: Whether injection succeeded
-        timestamp: Optional timestamp for the injection
+        timestamp: Optional timestamp captured at injection moment (monotonic time)
+                  If None, will capture current time (less accurate)
     """
     # Check if event should be logged at current level
     to_console, to_file = _should_log_event('injection')
     if not to_console and not to_file:
         return
     
+    # Use provided timestamp for accuracy, or capture now as fallback
+    # Provided timestamp should be captured at injection moment by controller
+    if timestamp is None:
+        timestamp = time.monotonic()
+
     # Format message
     msg = message_formats.format_injection(target, success)
     
@@ -475,3 +602,235 @@ def log_sem_command(command: str, response: List[str]):
                 _write_to_file(resp_msg)
             if resp_console:
                 _write_to_console(resp_msg)
+
+
+# =============================================================================
+# GPIO Events
+# =============================================================================
+
+def log_gpio_init(pin: int, idle_id: int, width: int, max_reg_id: int):
+    """
+    Log GPIO interface initialization.
+    
+    Args:
+        pin: GPIO pin number
+        idle_id: Idle register ID
+        width: Register ID bit width
+        max_reg_id: Maximum register ID supported
+    """
+    to_console, to_file = _should_log_event('gpio_init')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_gpio_init(pin, idle_id, width, max_reg_id)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_gpio_inject(reg_id: int, bit_index: int = None):
+    """
+    Log GPIO injection command.
+    
+    High-frequency event (one per injection).
+    
+    Args:
+        reg_id: Register ID being injected
+        bit_index: Optional bit index
+    """
+    to_console, to_file = _should_log_event('gpio_inject')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_gpio_inject(reg_id, bit_index)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_gpio_error(reg_id: int, width: int, max_reg_id: int):
+    """
+    Log GPIO validation error.
+    
+    Args:
+        reg_id: Invalid register ID
+        width: Register ID bit width
+        max_reg_id: Maximum register ID supported
+    """
+    to_console, to_file = _should_log_event('gpio_error')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_gpio_error(reg_id, width, max_reg_id)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_gpio_placeholder():
+    """
+    Log GPIO placeholder message for unimplemented transmission.
+    """
+    to_console, to_file = _should_log_event('gpio_placeholder')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_gpio_placeholder()
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+# =============================================================================
+# SEM Preflight Events
+# =============================================================================
+
+def log_sem_preflight_testing():
+    """
+    Log SEM preflight test starting.
+    """
+    to_console, to_file = _should_log_event('sem_preflight_testing')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_sem_preflight_testing()
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_sem_preflight_ok(field_count: int):
+    """
+    Log SEM preflight test success.
+    
+    Args:
+        field_count: Number of status fields received from SEM
+    """
+    to_console, to_file = _should_log_event('sem_preflight_ok')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_sem_preflight_ok(field_count)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_sem_preflight_error(error_type: str, required: bool):
+    """
+    Log SEM preflight test failure.
+    
+    Args:
+        error_type: Type of error ("no_response" or exception message)
+        required: Whether preflight is required (affects campaign behavior)
+    """
+    to_console, to_file = _should_log_event('sem_preflight_error')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_sem_preflight_error(error_type, required)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+# =============================================================================
+# ACME Debug Events
+# =============================================================================
+
+def log_acme_debug(debug_type: str, **kwargs):
+    """
+    Log ACME debug information (controlled by FI_ACME_DEBUG env var).
+    
+    These messages are gated by the existing dbg_enabled flag in ACME code
+    AND by the VERBOSE log level setting.
+    
+    Args:
+        debug_type: Type of debug message
+        **kwargs: Type-specific parameters
+    """
+    to_console, to_file = _should_log_event('acme_debug')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_acme_debug(debug_type, **kwargs)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+# =============================================================================
+# Target List Events
+# =============================================================================
+
+def log_target_list_loading(pool_file: str):
+    """
+    Log target list loading from file.
+    
+    Args:
+        pool_file: Path to pool file being loaded
+    """
+    to_console, to_file = _should_log_event('target_list_loading')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_target_list_loading(pool_file)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_target_list_loaded(count: int):
+    """
+    Log target list loaded successfully.
+    
+    Args:
+        count: Number of targets loaded from file
+    """
+    to_console, to_file = _should_log_event('target_list_loaded')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_target_list_loaded(count)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_target_list_stats(stats: dict):
+    """
+    Log target list statistics.
+    
+    Args:
+        stats: Pool statistics dictionary with 'by_kind' key
+    """
+    to_console, to_file = _should_log_event('target_list_stats')
+    if not to_console and not to_file:
+        return
+    
+    msg = message_formats.format_target_list_stats(stats)
+    
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)

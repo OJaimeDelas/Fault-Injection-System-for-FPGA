@@ -1,8 +1,8 @@
 # =============================================================================
 # FATORI-V • FI ACME Factory
-# File: acme_factory.py
+# File: fi/backend/acme/factory.py
 # -----------------------------------------------------------------------------
-# ACME engine factory and public API for address expansion.
+# ACME engine factory and public API for address expansion with region filtering.
 #=============================================================================
 
 from __future__ import annotations
@@ -10,12 +10,19 @@ from __future__ import annotations
 import os
 import logging
 from pathlib import Path
-from typing import Iterator, Tuple, List
+from typing import Iterator, Tuple, List, Optional, Dict, Any
 
 from fi.backend.acme.core import parse_ebd_to_lfas
-from fi.backend.acme.cache import cached_device_path
+from fi.backend.acme.cache import (
+    cached_device_path,
+    cached_region_path,
+    read_cached_addresses,
+    write_cached_addresses
+)
+from fi.backend.acme.geometry import unpack_lfa, rect_contains_point
 from fi.backend.acme.xcku040 import Xcku040Board
 from fi.backend.acme.basys3 import Basys3Board
+from fi.core.logging.events import log_acme_cache_hit, log_acme_expansion
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +55,6 @@ def get_supported_boards() -> List[str]:
     load_board), but this helper lists the "nice" names that should usually
     appear in help texts and documentation.
     """
-    # The aliases understood by load_board() are intentionally *not* all
-    # repeated here; this list is meant for user-facing documentation and
-    # validation, not for parsing every possible spelling.
     return ["basys3", "xcku040"]
 
 
@@ -59,84 +63,245 @@ def get_supported_boards() -> List[str]:
 
 class AcmeEngine:
     """
-    Minimal ACME engine wrapper.
+    ACME engine with region filtering support.
 
     Responsibilities
     ----------------
     • Keep track of a logical board name and the path to an EBD file.
     • Own the board/device map object (Basys3Board, Xcku040Board, …).
-    • Provide a single high-level method:
-          expand_region_to_config_bits(region_spec) -> list[str]
-      that returns SEM LFAs (10-hex strings) for configuration bits that
-      belong to the region of interest.
+    • Provide high-level method expand_region_to_config_bits() that returns
+      SEM LFAs (10-hex strings) for configuration bits within a specified
+      physical region.
+    • Cache filtered addresses to avoid expensive recomputation.
 
-    Region semantics
+    Region Filtering
     ----------------
-    • The shape of 'region_spec' is deliberately opaque at this level. It is
-      whatever the targets layer / system dictionary uses to describe a pblock
-      region (for example, a tile rectangle or frame range).
-    • The current implementation *accepts and logs* the region spec but does
-      not yet filter geometrically; it emits device-wide addresses derived
-      from the EBD file. This keeps the public API stable while allowing
-      region-aware filtering to be implemented later without touching callers.
+    • region_spec can be:
+        - Dict with keys: x_lo, y_lo, x_hi, y_hi (physical coordinates)
+        - None (returns device-wide addresses)
+    • Filtering uses board-specific coordinate mapping (la_to_xy)
+    • Results are cached based on (board, ebd_file, coordinates)
     """
 
-    def __init__(self, board_name: str, ebd_path: str) -> None:
+    def __init__(self, board_name: str, ebd_path: str, cache_dir: str = "gen/acme") -> None:
         self.board_name: str = (board_name or "").strip()
-        # Store the EBD path as a string for logging and reproducibility.
         self.ebd_path: str = str(ebd_path)
-        # Resolve the concrete board/device map; this validates the name early.
         self._board = load_board(self.board_name)
+        self.cache_dir = cache_dir
 
-    def expand_region_to_config_bits(self, region_spec) -> List[str]:
+    def expand_region_to_config_bits(
+        self,
+        region_spec: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True
+    ) -> List[str]:
         """
         Expand a region description into configuration-bit addresses.
+
+        NOW IMPLEMENTS ACTUAL REGION FILTERING based on physical coordinates.
+        Uses caching to avoid expensive recomputation.
 
         Parameters
         ----------
         region_spec:
-            Opaque region description coming from the system dictionary. The
-            current implementation does not interpret it geometrically and
-            simply emits all device-wide essential bits for the EBD.
+            Region description with physical coordinates:
+            - Dict with keys: x_lo, y_lo, x_hi, y_hi (all integers)
+            - None for device-wide addresses (no filtering)
+        
+        use_cache:
+            Whether to use cached results if available (default: True)
 
         Returns
         -------
         list[str]
-            List of SEM LFAs (10-hex uppercase strings), suitable for feeding
-            into SEM or wrapping in TargetSpec objects.
+            List of SEM LFAs (10-hex uppercase strings) that fall within
+            the specified region (or all addresses if region_spec is None).
 
         Notes
         -----
-        • The engine hides all details of the EBD → (LA, WORD, BIT) mapping by
-          deferring to parse_ebd_to_lfas via extract_device_addresses.
-        • Future versions can add optional sampling or region filtering here
-          without changing the targets layer API.
+        • Device-wide cache key: (board, ebd_file, size, mtime, path)
+        • Region cache key: (board, ebd_file, x_lo, y_lo, x_hi, y_hi)
+        • Filtering accuracy depends on board-specific la_to_xy() mapping
         """
+        # Handle device-wide case (no filtering)
+        if region_spec is None:
+            return self._expand_device_wide(use_cache=use_cache)
+        
+        # Extract coordinates from region_spec
+        try:
+            x_lo = int(region_spec['x_lo'])
+            y_lo = int(region_spec['y_lo'])
+            x_hi = int(region_spec['x_hi'])
+            y_hi = int(region_spec['y_hi'])
+        except (KeyError, ValueError, TypeError) as e:
+            logger.error(f"Invalid region_spec: {e}")
+            raise ValueError(
+                f"region_spec must be dict with x_lo/y_lo/x_hi/y_hi or None, "
+                f"got: {region_spec!r}"
+            )
+        
         logger.info(
-            "ACME engine expanding region %r for board '%s' using EBD '%s'.",
-            region_spec,
+            "ACME engine expanding region (%d,%d)-(%d,%d) for board '%s' using EBD '%s'.",
+            x_lo, y_lo, x_hi, y_hi,
             self.board_name,
             self.ebd_path,
         )
+        
+        # Try cache first if enabled
+        if use_cache:
+            cache_path = cached_region_path(
+                ebd_path=self.ebd_path,
+                board_name=self.board_name,
+                x_lo=x_lo,
+                y_lo=y_lo,
+                x_hi=x_hi,
+                y_hi=y_hi,
+                cache_dir=self.cache_dir
+            )
+            
+            cached = read_cached_addresses(cache_path)
+            if cached is not None:
+                # Log cache hit using event logger (shows in console)
+                region_str = f"[{x_lo},{y_lo},{x_hi},{y_hi}]"
+                log_acme_cache_hit(region_str, len(cached))
+                return cached
+                        
+            logger.debug(f"ACME cache miss: {cache_path.name}")
+        
+        # Cache miss or disabled - filter addresses by region
+        addresses = self._filter_by_region(x_lo, y_lo, x_hi, y_hi)
+        
+        # Cache results if enabled and non-empty
+        if use_cache and addresses:
+            cache_path = cached_region_path(
+                ebd_path=self.ebd_path,
+                board_name=self.board_name,
+                x_lo=x_lo,
+                y_lo=y_lo,
+                x_hi=x_hi,
+                y_hi=y_hi,
+                cache_dir=self.cache_dir
+            )
+            
+            if write_cached_addresses(cache_path, addresses):
+                logger.info(
+                    "ACME cached %d addresses to %s",
+                    len(addresses),
+                    cache_path.name
+                )
+            else:
+                logger.warning(f"Failed to write ACME cache: {cache_path}")
+        
+        # Log expansion using event logger (shows in console)
+        region_str = f"[{x_lo},{y_lo},{x_hi},{y_hi}]"
+        log_acme_expansion(region_str, len(addresses))
 
-        addresses: List[str] = []
-
-        # Streaming parse of the EBD file. The underlying parser already
-        # encapsulates the mapping from payload words to (LA, WORD, BIT).
-        for lfa in extract_device_addresses(self.ebd_path, self._board):
-            # Normalise as uppercase hex string to keep logs and YAML dumps
-            # consistent, even if the parser ever returns lowercase.
-            addresses.append(str(lfa).strip().upper())
-
+        return addresses
+    
+    def _expand_device_wide(self, use_cache: bool = True) -> List[str]:
+        """
+        Generate device-wide addresses (no region filtering).
+        
+        Args:
+            use_cache: Whether to use cached results
+        
+        Returns:
+            List of all device addresses
+        """
         logger.info(
-            "ACME engine produced %d configuration-bit addresses for region %r.",
-            len(addresses),
-            region_spec,
+            "ACME engine expanding device-wide for board '%s' using EBD '%s'.",
+            self.board_name,
+            self.ebd_path,
         )
+        
+        # Try cache first if enabled
+        if use_cache:
+            cache_path = cached_device_path(
+                ebd_path=self.ebd_path,
+                board_name=self.board_name,
+                cache_dir=self.cache_dir
+            )
+            
+            cached = read_cached_addresses(cache_path)
+            if cached is not None:
+                # Log cache hit using event logger (shows in console)
+                log_acme_cache_hit("device-wide", len(cached))
+                return cached
+        
+        # Cache miss or disabled - parse EBD
+        addresses: List[str] = []
+        for lfa in extract_device_addresses(self.ebd_path, self._board):
+            addresses.append(str(lfa).strip().upper())
+        
+        # Cache results if enabled and non-empty
+        if use_cache and addresses:
+            cache_path = cached_device_path(
+                ebd_path=self.ebd_path,
+                board_name=self.board_name,
+                cache_dir=self.cache_dir
+            )
+            
+            if write_cached_addresses(cache_path, addresses):
+                logger.info(
+                    "ACME cached %d device-wide addresses to %s",
+                    len(addresses),
+                    cache_path.name
+                )
+        
+        # Log expansion using event logger (shows in console)
+        log_acme_expansion("device-wide", len(addresses))
+
+        return addresses
+    
+    def _filter_by_region(self, x_lo: int, y_lo: int, x_hi: int, y_hi: int) -> List[str]:
+        """
+        Filter device addresses to only those within specified region.
+        
+        Args:
+            x_lo, y_lo: Minimum coordinates (inclusive)
+            x_hi, y_hi: Maximum coordinates (inclusive)
+        
+        Returns:
+            List of addresses within region
+        """
+        addresses: List[str] = []
+        filtered_count = 0
+        total_count = 0
+        
+        for lfa in extract_device_addresses(self.ebd_path, self._board):
+            total_count += 1
+            
+            try:
+                # Unpack LFA to get linear frame address
+                la, word, bit = unpack_lfa(lfa)
+                
+                # Map to physical coordinates
+                x, y = self._board.la_to_xy(la)
+                
+                # Check if within region bounds
+                if rect_contains_point(x, y, x_lo, y_lo, x_hi, y_hi):
+                    addresses.append(str(lfa).strip().upper())
+                else:
+                    filtered_count += 1
+            
+            except Exception as e:
+                # Log and skip invalid LFAs
+                logger.debug(f"Skipping invalid LFA {lfa}: {e}")
+                continue
+        
+        logger.debug(
+            f"Filtered {filtered_count} of {total_count} addresses "
+            f"({100.0 * filtered_count / max(1, total_count):.1f}% reduction)"
+        )
+        
         return addresses
 
 
-def make_acme_engine(board_name: str, ebd_path: str) -> AcmeEngine:
+def make_acme_engine(
+    *,
+    board_name: str,
+    ebd_path: str,
+    cache_dir: str = "gen/acme"
+) -> "AcmeEngine":
     """
     Factory helper that constructs an :class:`AcmeEngine`.
 
@@ -163,8 +328,7 @@ def make_acme_engine(board_name: str, ebd_path: str) -> AcmeEngine:
     if not ebd_path:
         raise ValueError("EBD path is empty when constructing ACME engine.")
 
-    # Validate the board name quickly; AcmeEngine will call load_board again
-    # but the early check makes the error message in logs more explicit.
+    # Validate the board name quickly
     load_board(board_name)
 
     logger.info(
@@ -172,7 +336,7 @@ def make_acme_engine(board_name: str, ebd_path: str) -> AcmeEngine:
         board_name,
         ebd_path,
     )
-    return AcmeEngine(board_name=board_name, ebd_path=ebd_path)
+    return AcmeEngine(board_name=board_name, ebd_path=ebd_path, cache_dir=cache_dir)
 
 
 # ------------------------------ debug helpers --------------------------------
@@ -259,43 +423,22 @@ def get_or_build_cached_device_list(
     force_rebuild = _env_truthy("FI_ACME_REBUILD", False)
 
     if debug:
+        from fi.core.logging.events import log_acme_debug
         try:
             stat = ebd_path.stat()
-            print(f"[DEBUG][ACME] EBD: {ebd_path} — size={stat.st_size} bytes")
+            log_acme_debug("ebd_stat", path=str(ebd_path), size=f"{stat.st_size} bytes")
         except Exception:
-            print(f"[DEBUG][ACME] EBD: {ebd_path} — <stat failed>")
+            log_acme_debug("ebd_stat", path=str(ebd_path), size="<stat failed>")
         pr, fw, ones = scan_ebd_payload_stats(ebd_path)
-        print(f"[DEBUG][ACME] payload_rows={pr}, full_32bit_words={fw}, ones_bits={ones}")
+        log_acme_debug("payload_stats", rows=pr, words=fw, ones=ones)
 
     # Fast path: reuse cache unless forced to rebuild or file is empty
     if cache_path.exists() and not force_rebuild:
-        try:
-            with cache_path.open("r", encoding="utf-8", errors="ignore") as fh:
-                # Peek two lines: 0 -> empty file; 1+ -> usable
-                first = fh.readline()
-                second = fh.readline()
-                has_data = bool(first or second)
-        except Exception:
-            has_data = False
-
-        if has_data:
+        cached = read_cached_addresses(cache_path)
+        if cached is not None:
             if debug:
-                try:
-                    n_lines = sum(
-                        1 for _ in cache_path.open("r", encoding="utf-8", errors="ignore")
-                    )
-                except Exception:
-                    n_lines = -1
-                print(f"[DEBUG][ACME] cache hit: {cache_path} (lines={n_lines})")
+                log_acme_debug("cache_hit", path=str(cache_path), lines=len(cached))
             return cache_path
-        else:
-            # Stale/empty cache — remove and rebuild
-            try:
-                cache_path.unlink()
-                if debug:
-                    print(f"[DEBUG][ACME] removed empty cache: {cache_path}")
-            except Exception:
-                pass
 
     board = load_board(board_name)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -303,17 +446,19 @@ def get_or_build_cached_device_list(
     emitted = 0
     samples: list[str] = []
 
-    with cache_path.open("w", encoding="utf-8") as fh:
-        for lfa in extract_device_addresses(ebd_path, board):
-            fh.write(lfa + "\n")
-            emitted += 1
-            if debug and len(samples) < max(0, debug_n):
-                samples.append(lfa)
+    addresses = []
+    for lfa in extract_device_addresses(ebd_path, board):
+        addresses.append(lfa)
+        emitted += 1
+        if debug and len(samples) < max(0, debug_n):
+            samples.append(lfa)
+
+    write_cached_addresses(cache_path, addresses)
 
     if debug:
-        print(f"[DEBUG][ACME] emitted={emitted} LFAs → {cache_path}")
+        log_acme_debug("emit_complete", count=emitted, path=str(cache_path))
         if samples:
-            print("[DEBUG][ACME] first LFAs:", ", ".join(samples))
+            log_acme_debug("samples", samples=samples)
 
     # Defensive: if emitted==0, remove the empty cache so callers can detect it
     if emitted == 0:
@@ -321,3 +466,5 @@ def get_or_build_cached_device_list(
             cache_path.unlink()
         except Exception:
             pass
+
+    return cache_path

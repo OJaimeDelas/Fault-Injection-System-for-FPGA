@@ -35,7 +35,8 @@ def open_sem(cfg: Config, log_ctx: Dict) -> Tuple[SemTransport, SemProtocol]:
     # Create SerialConfig object
     serial_config = SerialConfig(
         device=cfg.dev,
-        baud=cfg.baud
+        baud=cfg.baud,
+        debug=cfg.debug
     )
     
     # Instantiate transport with config
@@ -52,7 +53,8 @@ def open_sem(cfg: Config, log_ctx: Dict) -> Tuple[SemTransport, SemProtocol]:
 
     # Preflight test if enabled
     if getattr(console_settings, 'SEM_PREFLIGHT_TEST', True):
-        print("[SEM] Testing connection...")
+        from fi.core.logging.events import log_sem_preflight_testing
+        log_sem_preflight_testing()
         try:
             # Sync to prompt
             proto.sync_prompt()
@@ -62,31 +64,28 @@ def open_sem(cfg: Config, log_ctx: Dict) -> Tuple[SemTransport, SemProtocol]:
             
             if not status:
                 log_error("SEM preflight test: No response to status command")
-                print("[SEM] ERROR: No response from SEM. Check hardware connection.")
+                from fi.core.logging.events import log_sem_preflight_error
+                log_sem_preflight_error("no_response", cfg.sem_preflight_required)
                 
                 # Check if preflight is required - abort or warn
                 if cfg.sem_preflight_required:
-                    print("[SEM] SEM_PREFLIGHT_REQUIRED=True - aborting campaign.")
                     transport.close()
                     raise RuntimeError("SEM preflight failed: No response from SEM")
-                else:
-                    print("[SEM] Preflight not required - continuing with warning.")
             else:
-                print(f"[SEM] Connection OK - received {len(status)} status fields")
+                from fi.core.logging.events import log_sem_preflight_ok
+                log_sem_preflight_ok(len(status))
                 
         except RuntimeError:
             # Re-raise our own RuntimeError (preflight required failure)
             raise
         except Exception as e:
             log_error(f"SEM preflight test failed", exc=e)
-            print(f"[SEM] ERROR: Preflight test failed: {e}")
+            from fi.core.logging.events import log_sem_preflight_error
+            log_sem_preflight_error(str(e), cfg.sem_preflight_required)
             
             # Check if preflight is required - abort or warn
             if cfg.sem_preflight_required:
-                print("[SEM] SEM_PREFLIGHT_REQUIRED=True - aborting campaign.")
                 transport.close()
                 raise RuntimeError(f"SEM preflight failed: {e}")
-            else:
-                print("[SEM] Preflight not required - continuing with warning.")
 
     return transport, proto

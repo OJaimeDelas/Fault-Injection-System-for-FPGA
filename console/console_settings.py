@@ -13,7 +13,7 @@ PROMPT = "> "                       # Interactive prompt string
 SHOW_CONSOLE_COMMANDS = True        # Show command list on startup
 SHOW_SEM_CHEATSHEET = True          # Show SEM state machine cheatsheet
 SHOW_START_MODE = True              # Show initial SEM mode after connecting
-SEM_PREFLIGHT_TEST = True           # Verify SEM connection before campaign
+SEM_PREFLIGHT_TEST = False           # Verify SEM connection before campaign
 
 
 # =============================================================================

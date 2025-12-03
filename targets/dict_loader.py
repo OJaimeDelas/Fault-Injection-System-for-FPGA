@@ -2,7 +2,7 @@
 # FATORI-V • FI Targets
 # File: dict_loader.py
 # -----------------------------------------------------------------------------
-# Load and parse system dictionary with per-board structure.
+# Load and parse system dictionary with minimal format (coordinates + registers).
 #=============================================================================
 
 import yaml
@@ -14,36 +14,50 @@ from fi.core.logging.events import log_systemdict_loaded, log_error
 
 
 @dataclass
-class PblockInfo:
+class TargetInfo:
     """
-    Pblock (physical region) within a module.
+    Target module information from system dictionary.
+    
+    A target represents a physical region on the FPGA with associated registers
+    for fault injection monitoring. Uses direct physical coordinates (x_lo, y_lo,
+    x_hi, y_hi) rather than abstract region names.
     
     Attributes:
-        name: Pblock identifier (e.g., "alu_pb")
-        region: Clock region coordinates (e.g., "CLOCKREGION_X1Y2:CLOCKREGION_X1Y3")
+        x_lo: Minimum X coordinate (physical tiles)
+        y_lo: Minimum Y coordinate (physical tiles)
+        x_hi: Maximum X coordinate (physical tiles)
+        y_hi: Maximum Y coordinate (physical tiles)
+        registers: List of register IDs monitored for this target
+        module: Optional RTL module name (e.g., "ibex_controller")
     """
-    name: str
-    region: str
+    x_lo: int
+    y_lo: int
+    x_hi: int
+    y_hi: int
+    registers: List[int]
+    module: Optional[str] = None
 
 
 @dataclass
-class ModuleInfo:
+class DeviceInfo:
     """
-    Module information from system dictionary.
+    Device-level configuration parameters.
     
-    A module represents a logical hardware block (e.g., ALU, LSU, decoder) with:
-    - Associated registers (by reg_id)
-    - Physical placement (pblock with region coordinates)
-    - Human-readable description
+    Provides physical bounds and frame parameters needed for ACME address
+    generation and coordinate mapping.
     
     Attributes:
-        description: Human-readable module description
-        registers: List of register IDs that belong to this module
-        pblock: Physical block placement information
+        min_x: Minimum X coordinate of device
+        max_x: Maximum X coordinate of device
+        min_y: Minimum Y coordinate of device
+        max_y: Maximum Y coordinate of device
+        wf: Words per frame (device-specific constant)
     """
-    description: str
-    registers: List[int]
-    pblock: PblockInfo
+    min_x: int
+    max_x: int
+    min_y: int
+    max_y: int
+    wf: int
 
 
 @dataclass
@@ -53,30 +67,51 @@ class RegisterInfo:
     
     Attributes:
         reg_id: Unique register identifier (integer)
-        name: Human-readable register name (e.g., "alu_out", "lsu_addr")
+        name: Human-readable register name (e.g., "ctrl_fsm_cs")
+        module: Source RTL module (e.g., "ibex_controller")
     """
     reg_id: int
     name: str
+    module: str
 
 
 @dataclass
 class BoardDict:
     """
-    Dictionary for one board configuration.
+    Dictionary for one board configuration (minimal format).
     
-    Contains all hardware description for a single FPGA board including:
-    - Device-wide region (for full device injection)
-    - All registers in the design
-    - All modules with their pblocks and register assignments
+    Contains device parameters, fault injection targets with physical coordinates,
+    and complete register mapping. All targets are specified by physical tile
+    coordinates rather than abstract region names.
     
     Attributes:
-        full_device_region: Complete device region coordinates
-        registers: List of all registers in the design
-        modules: Dict mapping module name to ModuleInfo
+        device: Device-level parameters (bounds, frame config)
+        targets: Dict mapping target name to TargetInfo (coordinates + registers)
+        registers: Dict mapping register ID to RegisterInfo
     """
-    full_device_region: str
-    registers: List[RegisterInfo]
-    modules: Dict[str, ModuleInfo]
+    device: DeviceInfo
+    targets: Dict[str, TargetInfo]
+    registers: Dict[int, RegisterInfo]
+
+    @property
+    def full_device_region(self) -> str:
+        """
+        Generate full device region string in CLOCKREGION format from device bounds.
+        
+        Converts physical device coordinates (min_x, max_x, min_y, max_y) into
+        the CLOCKREGION format expected by ACME decoder.
+        
+        Returns:
+            Region string like "CLOCKREGION_X0Y0:CLOCKREGION_X358Y310"
+        
+        Example:
+            >>> board_dict.full_device_region
+            'CLOCKREGION_X0Y0:CLOCKREGION_X358Y310'
+        """
+        return (
+            f"CLOCKREGION_X{self.device.min_x}Y{self.device.min_y}:"
+            f"CLOCKREGION_X{self.device.max_x}Y{self.device.max_y}"
+        )
 
 
 @dataclass
@@ -85,8 +120,8 @@ class SystemDict:
     Complete system dictionary with per-board configurations.
     
     The system dictionary can describe multiple boards (e.g., basys3, xcku040).
-    Each board has its own complete hardware description. Board selection
-    happens via CLI argument or auto-detection.
+    Each board has its complete hardware description with physical coordinates.
+    Board selection happens via CLI argument or auto-detection.
     
     Attributes:
         boards: Dict mapping board name to BoardDict
@@ -96,35 +131,50 @@ class SystemDict:
     source_path: Optional[str] = None
 
 
-def load_system_dict(path: str) -> SystemDict:
+def load_system_dict(path: str, is_user_path: bool = True) -> SystemDict:
     """
-    Load system dictionary from YAML file.
+    Load system dictionary from YAML file (minimal format).
     
-    Expected YAML structure:
+    Path resolution:
+    - If is_user_path=True: Resolve relative to current working directory
+    - If is_user_path=False: Resolve relative to fi/ package directory
+    
+    Expected YAML structure (minimal format with physical coordinates):
 ```yaml
-    basys3:
-      full_device_region: "CLOCKREGION_X0Y0:CLOCKREGION_X3Y3"
-      registers:
-        - reg_id: 0
-          name: "alu_out"
-        - reg_id: 1
-          name: "alu_acc"
-      modules:
-        alu:
-          description: "Arithmetic Logic Unit"
-          registers: [0, 1]
-          pblock:
-            name: "alu_pb"
-            region: "CLOCKREGION_X1Y2:CLOCKREGION_X1Y3"
-    
     xcku040:
-      full_device_region: "..."
-      registers: [...]
-      modules: {...}
+      device:
+        min_x: 0
+        max_x: 358
+        min_y: 0
+        max_y: 310
+        wf: 123
+      
+      targets:
+        controller:
+          x_lo: 50
+          y_lo: 50
+          x_hi: 75
+          y_hi: 65
+          registers: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+          module: ibex_controller  # Optional RTL module name
+        
+        lsu:
+          x_lo: 100
+          y_lo: 50
+          x_hi: 120
+          y_hi: 60
+          registers: [128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139]
+          module: ibex_load_store_unit  # Optional
+      
+      registers:
+        1: {name: "minor_cnt_o", module: "fatori_fault_mgr"}
+        7: {name: "mem_resp_intg_err_irq_pending_q", module: "ibex_controller"}
+        # ... etc
 ```
     
     Args:
         path: Path to system dictionary YAML file
+        is_user_path: True if path from CLI (relative to CWD), False if default (relative to fi/)
     
     Returns:
         SystemDict with parsed board configurations
@@ -133,15 +183,17 @@ def load_system_dict(path: str) -> SystemDict:
         FileNotFoundError: If file doesn't exist
         ValueError: If YAML is malformed or missing required fields
     """
-    path = Path(path)
+    from fi.core.config.path_resolver import resolve_path
     
-    if not path.exists():
-        log_error(f"System dictionary not found: {path}")
-        raise FileNotFoundError(f"System dictionary not found: {path}")
+    path_obj = resolve_path(path, is_user_path)
+    
+    if not path_obj.exists():
+        log_error(f"System dictionary not found: {path_obj}")
+        raise FileNotFoundError(f"System dictionary not found: {path_obj}")
     
     # Load YAML
     try:
-        with open(path, 'r') as f:
+        with open(path_obj, 'r') as f:
             data = yaml.safe_load(f)
     except Exception as e:
         log_error(f"Failed to parse system dictionary YAML", exc=e)
@@ -166,15 +218,15 @@ def load_system_dict(path: str) -> SystemDict:
     
     system_dict = SystemDict(
         boards=boards,
-        source_path=str(path)
+        source_path=str(path_obj)
     )
     
     # Log successful loading
-    total_modules = sum(len(bd.modules) for bd in boards.values())
+    total_targets = sum(len(bd.targets) for bd in boards.values())
     log_systemdict_loaded(
-        path=str(path),
+        path=str(path_obj),
         boards=list(boards.keys()),
-        total_modules=total_modules
+        total_modules=total_targets
     )
     
     return system_dict
@@ -182,7 +234,7 @@ def load_system_dict(path: str) -> SystemDict:
 
 def _parse_board_dict(board_name: str, data: dict) -> BoardDict:
     """
-    Parse single board dictionary from YAML data.
+    Parse single board dictionary from YAML data (minimal format).
     
     Args:
         board_name: Name of the board (for error messages)
@@ -197,93 +249,152 @@ def _parse_board_dict(board_name: str, data: dict) -> BoardDict:
     if not isinstance(data, dict):
         raise ValueError(f"Board '{board_name}' data must be a dict")
     
-    # Extract full_device_region (required)
-    if 'full_device_region' not in data:
-        raise ValueError(f"Board '{board_name}' missing 'full_device_region'")
-    full_device_region = data['full_device_region']
+    # Parse device section (required)
+    if 'device' not in data:
+        raise ValueError(f"Board '{board_name}' missing 'device' section")
     
-    # Parse registers list
-    registers_data = data.get('registers', [])
-    if not isinstance(registers_data, list):
-        raise ValueError(f"Board '{board_name}' registers must be a list")
+    device = _parse_device_info(board_name, data['device'])
     
-    registers = []
-    for reg_data in registers_data:
-        if not isinstance(reg_data, dict):
-            raise ValueError(f"Register entry must be a dict")
-        if 'reg_id' not in reg_data or 'name' not in reg_data:
-            raise ValueError(f"Register entry missing 'reg_id' or 'name'")
-        
-        registers.append(RegisterInfo(
-            reg_id=int(reg_data['reg_id']),
-            name=str(reg_data['name'])
-        ))
+    # Parse targets section
+    targets_data = data.get('targets', {})
+    if not isinstance(targets_data, dict):
+        raise ValueError(f"Board '{board_name}' targets must be a dict")
     
-    # Parse modules dict
-    modules_data = data.get('modules', {})
-    if not isinstance(modules_data, dict):
-        raise ValueError(f"Board '{board_name}' modules must be a dict")
-    
-    modules = {}
-    for module_name, module_data in modules_data.items():
+    targets = {}
+    for target_name, target_data in targets_data.items():
         try:
-            modules[module_name] = _parse_module_info(module_name, module_data)
+            targets[target_name] = _parse_target_info(target_name, target_data)
         except Exception as e:
-            raise ValueError(f"Error parsing module '{module_name}': {e}")
+            raise ValueError(f"Error parsing target '{target_name}': {e}")
+    
+    # Parse registers section
+    registers_data = data.get('registers', {})
+    if not isinstance(registers_data, dict):
+        raise ValueError(f"Board '{board_name}' registers must be a dict")
+    
+    registers = {}
+    for reg_id, reg_data in registers_data.items():
+        try:
+            reg_id_int = int(reg_id)
+            registers[reg_id_int] = _parse_register_info(reg_id_int, reg_data)
+        except Exception as e:
+            raise ValueError(f"Error parsing register {reg_id}: {e}")
     
     return BoardDict(
-        full_device_region=full_device_region,
-        registers=registers,
-        modules=modules
+        device=device,
+        targets=targets,
+        registers=registers
     )
 
 
-def _parse_module_info(module_name: str, data: dict) -> ModuleInfo:
+def _parse_device_info(board_name: str, data: dict) -> DeviceInfo:
     """
-    Parse single module info from YAML data.
+    Parse device section from YAML data.
     
     Args:
-        module_name: Name of the module (for error messages)
-        data: Module data from YAML
+        board_name: Name of the board (for error messages)
+        data: Device data from YAML
     
     Returns:
-        ModuleInfo with parsed data
+        DeviceInfo with parsed data
     
     Raises:
         ValueError: If required fields missing or malformed
     """
     if not isinstance(data, dict):
-        raise ValueError(f"Module '{module_name}' data must be a dict")
+        raise ValueError(f"Board '{board_name}' device section must be a dict")
     
-    # Description (required)
-    if 'description' not in data:
-        raise ValueError(f"Module '{module_name}' missing 'description'")
-    description = str(data['description'])
+    required_fields = ['min_x', 'max_x', 'min_y', 'max_y', 'wf']
+    for field in required_fields:
+        if field not in data:
+            raise ValueError(f"Device section missing required field '{field}'")
     
-    # Registers list (required, can be empty)
+    try:
+        return DeviceInfo(
+            min_x=int(data['min_x']),
+            max_x=int(data['max_x']),
+            min_y=int(data['min_y']),
+            max_y=int(data['max_y']),
+            wf=int(data['wf'])
+        )
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid device parameter value: {e}")
+
+
+def _parse_target_info(target_name: str, data: dict) -> TargetInfo:
+    """
+    Parse single target info from YAML data.
+    
+    Args:
+        target_name: Name of the target (for error messages)
+        data: Target data from YAML
+    
+    Returns:
+        TargetInfo with parsed data
+    
+    Raises:
+        ValueError: If required fields missing or malformed
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"Target '{target_name}' data must be a dict")
+    
+    # Required coordinate fields
+    required_coords = ['x_lo', 'y_lo', 'x_hi', 'y_hi']
+    for field in required_coords:
+        if field not in data:
+            raise ValueError(f"Target '{target_name}' missing required field '{field}'")
+    
+    # Required registers field
     if 'registers' not in data:
-        raise ValueError(f"Module '{module_name}' missing 'registers'")
+        raise ValueError(f"Target '{target_name}' missing 'registers' field")
+    
     registers_list = data['registers']
     if not isinstance(registers_list, list):
-        raise ValueError(f"Module '{module_name}' registers must be a list")
-    registers = [int(reg_id) for reg_id in registers_list]
+        raise ValueError(f"Target '{target_name}' registers must be a list")
     
-    # Pblock (required)
-    if 'pblock' not in data:
-        raise ValueError(f"Module '{module_name}' missing 'pblock'")
-    pblock_data = data['pblock']
-    if not isinstance(pblock_data, dict):
-        raise ValueError(f"Module '{module_name}' pblock must be a dict")
-    if 'name' not in pblock_data or 'region' not in pblock_data:
-        raise ValueError(f"Module '{module_name}' pblock missing 'name' or 'region'")
+    # Optional module field (RTL module name for documentation)
+    module_name = data.get('module', None)
+    if module_name is not None:
+        module_name = str(module_name)
     
-    pblock = PblockInfo(
-        name=str(pblock_data['name']),
-        region=str(pblock_data['region'])
-    )
+    try:
+        return TargetInfo(
+            x_lo=int(data['x_lo']),
+            y_lo=int(data['y_lo']),
+            x_hi=int(data['x_hi']),
+            y_hi=int(data['y_hi']),
+            registers=[int(reg_id) for reg_id in registers_list],
+            module=module_name
+        )
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid target parameter value: {e}")
+
+
+def _parse_register_info(reg_id: int, data: dict) -> RegisterInfo:
+    """
+    Parse single register info from YAML data.
     
-    return ModuleInfo(
-        description=description,
-        registers=registers,
-        pblock=pblock
+    Args:
+        reg_id: Register ID (integer key from YAML)
+        data: Register data dict with 'name' and 'module'
+    
+    Returns:
+        RegisterInfo with parsed data
+    
+    Raises:
+        ValueError: If required fields missing or malformed
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"Register {reg_id} data must be a dict")
+    
+    if 'name' not in data:
+        raise ValueError(f"Register {reg_id} missing 'name' field")
+    
+    if 'module' not in data:
+        raise ValueError(f"Register {reg_id} missing 'module' field")
+    
+    return RegisterInfo(
+        reg_id=reg_id,
+        name=str(data['name']),
+        module=str(data['module'])
     )

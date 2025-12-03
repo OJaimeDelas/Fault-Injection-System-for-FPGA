@@ -80,24 +80,22 @@ class RampTimeProfile:
         next_deadline = start_t
 
         while True:
+            # Check for external stop signal
             if controller.should_stop():
+                controller.set_termination_reason("Stop requested")
                 break
-
+            
+            # Check if we've exceeded the ramp duration
             now = base.now_monotonic()
             elapsed = now - start_t
             if elapsed >= self._duration_s:
-                # End of ramp duration.
+                controller.set_termination_reason("Duration limit reached")
                 break
-
-            # Determine current rate and corresponding period.
-            rate_hz = self._current_rate(elapsed)
-            if rate_hz <= 0.0:
-                break
-            period_s = 1.0 / rate_hz
-
-            # Obtain next target.
+            
+            # Get next target
             target = controller.next_target()
             if target is None:
+                controller.set_termination_reason("Target pool exhausted")
                 break
 
             # Wait until the planned deadline.

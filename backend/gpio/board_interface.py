@@ -18,6 +18,15 @@ class BoardInterface(ABC):
     Different platforms (Raspberry Pi GPIO, custom FPGA interface,
     SPI/I2C protocol, etc.) implement this interface to provide
     register-level fault injection.
+    
+    CRITICAL TIMING REQUIREMENT:
+    The inject_register() method MUST return immediately without
+    waiting for hardware acknowledgment. Time profiles depend on
+    precise injection timing, and any blocking wait will compromise
+    campaign timing accuracy.
+    
+    Correct: Send command → return immediately
+    Wrong: Send command → wait for ack → return
     """
     
     @abstractmethod
@@ -25,12 +34,17 @@ class BoardInterface(ABC):
         """
         Inject fault into register.
         
+        MUST BE NON-BLOCKING: This method must send the injection
+        command and return immediately. Do not wait for hardware
+        acknowledgment or verification.
+        
         Args:
             reg_id: Register ID to inject into
             bit_index: Optional bit index within register (for bit-level injection)
         
         Returns:
-            True if injection succeeded, False otherwise
+            True if injection command sent successfully, False otherwise
+            (Note: True means command sent, not that fault occurred)
         """
         pass
 
@@ -52,6 +66,8 @@ class NoOpBoardInterface(BoardInterface):
         """
         Log injection request but don't perform actual injection.
         
+        Returns immediately (non-blocking as required).
+        
         Args:
             reg_id: Register ID
             bit_index: Optional bit index
@@ -71,88 +87,105 @@ class GPIOBoardInterface(BoardInterface):
     
     Transmits register IDs serially over a single GPIO pin. The FPGA samples
     the pin to detect register ID changes. When idle, transmits IDLE_ID (0).
+    
+    IMPLEMENTATION NOTE:
+    This class uses fire-and-forget transmission. The inject_register()
+    method sends the register ID via GPIO and returns immediately without
+    waiting for FPGA acknowledgment. This is required for maintaining
+    precise injection timing in campaigns.
     """
     
-    def __init__(self, config):
+    def __init__(self, config, transport=None):
         """
         Initialize GPIO board interface.
         
         Args:
             config: Config object with GPIO settings
+            transport: SemTransport instance for UART communication (optional)
         """
-        self.gpio_pin = config.gpio_pin
+        self.transport = transport
         self.idle_id = config.gpio_idle_id
         self.reg_id_width = config.gpio_reg_id_width
         
         # Calculate max register ID based on bit width
         self.max_reg_id = (1 << self.reg_id_width) - 1
         
-        print(
-            f"[GPIO] Initialized: pin={self.gpio_pin}, "
-            f"idle_id={self.idle_id}, width={self.reg_id_width} bits "
-            f"(supports reg_id 1-{self.max_reg_id})"
-        )
-        
-        # TODO: Initialize GPIO hardware for serial transmission
-        # Platform-specific implementation needed
+        from fi.core.logging.events import log_gpio_init
+        # Log "UART" as interface type instead of pin number
+        log_gpio_init("UART", self.idle_id, self.reg_id_width, self.max_reg_id)
     
+
+
     def inject_register(self, reg_id: int, bit_index: int = None) -> bool:
         """
-        Transmit register ID via GPIO serial pin.
+        Transmit register ID via UART transport.
         
-        The ID is transmitted serially over the configured GPIO pin.
-        The FPGA samples the pin to detect ID changes.
+        Sends a 2-byte command to the FPGA UART decoder:
+            Byte 0: ASCII 'R' (0x52) - command identifier
+            Byte 1: Register ID (1-255) - target register
+        
+        The FPGA decoder converts this to an fi_port broadcast signal
+        that triggers injection in the corresponding CPU register.
+        
+        FIRE-AND-FORGET: This method sends the command and returns immediately.
+        No acknowledgment is waited for. This non-blocking behavior is critical
+        for campaign timing accuracy.
         
         Args:
             reg_id: Register ID to inject (1 to max_reg_id)
             bit_index: Optional bit index (currently unused)
         
         Returns:
-            True if injection succeeded
+            True if injection command sent successfully, False if validation failed
+            (Note: True means command sent, not that FPGA acknowledged)
         """
-        if bit_index is None:
-            print(f"[GPIO] Injecting reg_id={reg_id}")
-        else:
-            print(f"[GPIO] Injecting reg_id={reg_id}, bit={bit_index}")
+        from fi.core.logging.events import log_gpio_inject
+        log_gpio_inject(reg_id, bit_index)
         
         # Validate register ID
         if reg_id < 1 or reg_id > self.max_reg_id:
-            print(
-                f"[GPIO] ERROR: reg_id={reg_id} out of range (1-{self.max_reg_id} "
-                f"for {self.reg_id_width}-bit width)"
-            )
+            from fi.core.logging.events import log_gpio_error
+            log_gpio_error(reg_id, self.reg_id_width, self.max_reg_id)
             return False
         
-        # TODO: Implement serial transmission
-        # Pseudocode:
-        # 1. Set GPIO pin to transmit register ID serially
-        # 2. FPGA samples pin to detect ID
-        # 3. Wait for acknowledgment (platform-specific)
+        # If no transport available, log placeholder and return
+        if self.transport is None:
+            from fi.core.logging.events import log_gpio_placeholder
+            log_gpio_placeholder()
+            return True
         
-        print("[GPIO] Serial transmission not implemented - returning success (placeholder)")
+        # Send 2-byte command: 'R' (0x52) followed by register ID byte
+        command = bytes([0x52, reg_id])
+        self.transport.write_bytes(command)
+        
         return True
 
 
-def create_board_interface(cfg):
+def create_board_interface(cfg, transport=None):
     """
     Factory function to create appropriate board interface.
     
     Creates either a real GPIO interface or a NoOp stub based on
-    the cfg.gpio_enabled flag.
+    the cfg.gpio_force_disabled flag.
     
     Args:
         cfg: Config object with GPIO settings
+        transport: Optional SemTransport instance for UART-based injection
     
     Returns:
         BoardInterface instance (either GPIOBoardInterface or NoOpBoardInterface)
     
     Example:
-        >>> board_if = create_board_interface(cfg)
-        >>> board_if.inject_register(reg_id=5)
+        >>> transport, sem_proto = open_sem(cfg, log_ctx)
+        >>> board_if = create_board_interface(cfg, transport=transport)
+        >>> board_if.inject_register(reg_id=99)
     """
-    if cfg.gpio_enabled:
-        logger.info("Creating GPIO board interface (real GPIO control)")
-        return GPIOBoardInterface(cfg)
-    else:
-        logger.info("Creating NoOp board interface (simulation mode)")
+    # This factory is only called when GPIO is explicitly needed
+    # The conditional logic is in fault_injection.py
+    # This just handles the force_disabled flag
+    if cfg.gpio_force_disabled:
+        logger.info("Creating NoOp board interface (force disabled)")
         return NoOpBoardInterface()
+    else:
+        logger.info("Creating GPIO board interface (UART-based)")
+        return GPIOBoardInterface(cfg, transport=transport)

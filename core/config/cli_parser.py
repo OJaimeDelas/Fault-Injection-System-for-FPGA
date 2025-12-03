@@ -1,6 +1,6 @@
 # =============================================================================
 # FATORI-V • FI CLI Parsing
-# File: cli/parser.py
+# File: core/config/cli_parser.py
 # -----------------------------------------------------------------------------
 # Argument parser for the FI console command line interface.
 #=============================================================================
@@ -9,6 +9,24 @@ import argparse
 
 from fi import fi_settings
 
+
+def _add_debug_args(parser: argparse.ArgumentParser) -> None:
+    """
+    Add debug mode arguments.
+    
+    Debug mode simulates hardware without actual connections,
+    useful for testing campaign logic without the board.
+    """
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help=(
+            "Debug mode: simulate hardware without board connection. "
+            "All injection logic runs normally but hardware I/O is stubbed. "
+            "Useful for testing pool building, ratio enforcement, and campaign flow."
+        ),
+    )
 
 def _add_serial_args(parser: argparse.ArgumentParser) -> None:
     """
@@ -20,10 +38,10 @@ def _add_serial_args(parser: argparse.ArgumentParser) -> None:
         "-d",
         "--dev",
         dest="dev",
-        default=fi_settings.DEFAULT_SEM_DEVICE,
+        default=fi_settings.DEFAULT_DEVICE,
         help=(
             "Serial device used to talk to SEM "
-            f"(default: {fi_settings.DEFAULT_SEM_DEVICE})"
+            f"(default: {fi_settings.DEFAULT_DEVICE})"
         ),
     )
 
@@ -32,10 +50,10 @@ def _add_serial_args(parser: argparse.ArgumentParser) -> None:
         "--baud",
         dest="baud",
         type=int,
-        default=fi_settings.DEFAULT_SEM_BAUDRATE,
+        default=fi_settings.DEFAULT_BAUDRATE,
         help=(
             "Baudrate for the SEM serial link "
-            f"(default: {fi_settings.DEFAULT_SEM_BAUDRATE})"
+            f"(default: {fi_settings.DEFAULT_BAUDRATE})"
         ),
     )
 
@@ -108,59 +126,44 @@ def _add_profile_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_file_args(parser: argparse.ArgumentParser) -> None:
     """
-    Add file paths for system dictionary and injection pool.
+    Add file-path related arguments to the parser.
 
-    These allow the user to override the default paths for configuration files.
+    These control where key input files (system dictionary, EBD) are located.
     """
     parser.add_argument(
         "--system-dict",
         dest="system_dict_path",
         default=fi_settings.SYSTEM_DICT_DEFAULT_PATH,
         help=(
-            "Path to the system dictionary YAML file describing the board, "
-            "modules, registers and pblocks "
+            "Path to system dictionary YAML "
             f"(default: {fi_settings.SYSTEM_DICT_DEFAULT_PATH!r})"
         ),
     )
 
     parser.add_argument(
-        "--pool-file",
-        dest="pool_file_path",
-        default=fi_settings.INJECTION_POOL_DEFAULT_PATH,
+        "--ebd",
+        dest="ebd_path",
+        default=fi_settings.DEFAULT_EBD_PATH,
         help=(
-            "Optional path to an injection pool file. When provided, this is "
-            "used to pre-seed the TargetPool. "
-            f"(default: {fi_settings.INJECTION_POOL_DEFAULT_PATH!r})"
+            "Path to Essential Bits Data file (.ebd) "
+            f"(default: {fi_settings.DEFAULT_EBD_PATH!r})"
         ),
     )
 
 
 def _add_board_args(parser: argparse.ArgumentParser) -> None:
     """
-    Add board and EBD configuration arguments.
+    Add board-selection arguments to the parser.
 
-    These determine which FPGA board we are targeting and where to find
-    the essential bit database file for ACME.
+    Board selection can be explicit (--board) or auto-detected.
     """
     parser.add_argument(
         "--board",
-        dest="board",
+        dest="board_name",
         default=None,
         help=(
-            "Logical board name for ACME and system dictionary resolution "
-            "(for example 'basys3' or 'xcku040'). If not provided, FI will "
-            "attempt to use the board specified in the system dictionary, or "
-            "fall back to a built-in default."
-        ),
-    )
-
-    parser.add_argument(
-        "--ebd-path",
-        dest="ebd_path",
-        default=fi_settings.DEFAULT_EBD_PATH,
-        help=(
-            "Path to the EBD file used by ACME to map regions to "
-            f"configuration bits (default: {fi_settings.DEFAULT_EBD_PATH!r})"
+            "Board/device name to use (e.g., 'basys3', 'xcku040'). "
+            "If not provided, will be auto-detected from environment or settings."
         ),
     )
 
@@ -180,29 +183,26 @@ def _add_logging_args(parser: argparse.ArgumentParser) -> None:
             f"(default: {fi_settings.LOG_ROOT!r})"
         ),
     )
-    
+
     parser.add_argument(
         "--log-level",
         dest="log_level",
         choices=["minimal", "normal", "verbose"],
         default=fi_settings.LOG_LEVEL,
         help=(
-            "Console output verbosity level. "
-            "minimal: only errors and summary. "
-            "normal: major steps and progress. "
-            "verbose: everything including individual injections. "
-            f"(default: {fi_settings.LOG_LEVEL!r}). "
-            "See fi/config/log_levels.py to customize level definitions."
+            "Console output verbosity level: minimal (errors only), "
+            "normal (campaign summary), verbose (all details) "
+            f"(default: {fi_settings.LOG_LEVEL!r})"
         ),
     )
+
 
 def _add_gpio_args(parser: argparse.ArgumentParser) -> None:
     """
     Add GPIO configuration arguments for register injection.
     
-    The FI system uses a single GPIO pin for serial transmission of
-    register IDs to the FPGA. When idle, it transmits IDLE_ID (default 0).
-    When injecting, it transmits the target register ID.
+    GPIO is AUTO-ENABLED when REG targets exist in the pool.
+    Use --gpio-disabled to explicitly disable GPIO for testing without hardware.
     """
     gpio_group = parser.add_argument_group(
         "GPIO Configuration",
@@ -210,9 +210,13 @@ def _add_gpio_args(parser: argparse.ArgumentParser) -> None:
     )
     
     gpio_group.add_argument(
-        "--gpio-enabled",
+        "--gpio-disabled",
         action="store_true",
-        help="Enable GPIO control for register injection (default: NoOp simulation mode)"
+        help=(
+            "Force disable GPIO even if REG targets exist in pool. "
+            "GPIO is auto-enabled when REG targets are detected. "
+            "Use this flag for testing without hardware."
+        )
     )
     
     gpio_group.add_argument(
@@ -235,6 +239,7 @@ def _add_gpio_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=f"Bit width for register IDs (default: {fi_settings.INJECTION_GPIO_REG_ID_WIDTH})"
     )
+
 
 def _add_seed_args(parser: argparse.ArgumentParser) -> None:
     """
@@ -278,6 +283,190 @@ def _add_seed_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
+def _add_tpool_export_args(parser: argparse.ArgumentParser) -> None:
+    """
+    Add TargetPool YAML export arguments.
+    
+    Controls automatic export of generated target pools to YAML files for
+    reproducibility and debugging. Exported pools can be reused with the
+    target_list area profile.
+    """
+    tpool_group = parser.add_argument_group(
+        "TargetPool Export",
+        "Control automatic YAML export of generated target pools"
+    )
+    
+    tpool_group.add_argument(
+        "--tpool-name",
+        type=str,
+        default=None,
+        help=(
+            "Custom name for pool YAML file (without extension). "
+            "If not provided, uses timestamp-based name. "
+            "Example: --tpool-name campaign_baseline"
+        ),
+    )
+    
+    tpool_group.add_argument(
+        "--tpool-output",
+        type=str,
+        default=None,
+        help=(
+            "Additional directory to copy pool YAML to. "
+            "Pool is always saved to primary location (fi/gen/tpool/), "
+            "this provides a convenient copy to a user-specified path. "
+            "Example: --tpool-output /tmp/my_pools"
+        ),
+    )
+    
+    tpool_group.add_argument(
+        "--tpool-output-dir",
+        type=str,
+        default=None,
+        help=(
+            "Override primary output directory for pool YAML files. "
+            f"(default: {fi_settings.TPOOL_OUTPUT_DIR})"
+        ),
+    )
+    
+    tpool_group.add_argument(
+        "--no-tpool-save",
+        action="store_true",
+        help=(
+            "Disable automatic pool YAML generation. "
+            "Pool will only exist in memory during campaign execution."
+        ),
+    )
+    
+    tpool_group.add_argument(
+        "--tpool-size-break-repeat-only",
+        type=lambda x: x.lower() in ('true', '1', 'yes', 'on'),
+        default=None,
+        metavar='BOOL',
+        help=(
+            "Control when tpool_size limit applies. "
+            "true: tpool_size only applies when repeat=true (default). "
+            "false: tpool_size always applies. "
+            "Example: --tpool-size-break-repeat-only false"
+        ),
+    )
+    
+    tpool_group.add_argument(
+        "--tpool-absolute-cap",
+        type=int,
+        default=None,
+        help=(
+            "Absolute safety cap on pool size. Prevents creation of "
+            "extremely large pools. "
+            f"(default: {fi_settings.TPOOL_ABSOLUTE_CAP})"
+        ),
+    )
+
+    tpool_group.add_argument(
+        "--ratio-strict",
+        action="store_true",
+        default=False,
+        help=(
+            "Enforce strict ratio - stop pool when minority kind exhausts. "
+            "Example: ratio=1.0 with 186 REGs stops at 186 targets instead of "
+            "falling back to CONFIG. Without this flag, pool continues with "
+            "majority kind after minority exhausts."
+        ),
+    )
+
+def _add_acme_args(parser: argparse.ArgumentParser) -> None:
+    """
+    Add ACME caching arguments.
+    
+    ACME is used to expand pblock regions to configuration bit addresses.
+    Caching significantly speeds up repeated campaigns with the same modules.
+    """
+    acme_group = parser.add_argument_group(
+        "ACME Caching",
+        "Control caching of ACME configuration bit expansions"
+    )
+    
+    acme_group.add_argument(
+        "--no-acme-cache",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable ACME result caching. "
+            "ACME will be called fresh for every module expansion. "
+            "Useful for testing or when pblock definitions change frequently."
+        ),
+    )
+    
+    acme_group.add_argument(
+        "--acme-cache-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory for ACME cache files (relative to project root). "
+            f"Default: {fi_settings.ACME_CACHE_DIR}"
+        ),
+    )
+
+
+def _add_benchmark_sync_args(parser: argparse.ArgumentParser) -> None:
+    """
+    Add benchmark synchronization arguments.
+    
+    Controls file-based synchronization with external benchmark processes.
+    The FI system waits for a signal file to appear before starting, and
+    stops gracefully if the file is removed during execution.
+    """
+    sync_group = parser.add_argument_group(
+        "Benchmark Synchronization",
+        "Synchronize FI with external benchmark via signal file"
+    )
+    
+    sync_group.add_argument(
+        "--wait-for-file",
+        type=str,
+        default=None,
+        help=(
+            "Wait for this file to appear before starting campaign. "
+            "Campaign stops if file is removed during execution. " 
+            "Dir path starts at fi/."
+            "Example: --wait-for-file /tmp/benchmark_ready"
+        ),
+    )
+    
+    sync_group.add_argument(
+        "--check-interval",
+        type=float,
+        default=None,
+        help=(
+            "Check signal file existence every N seconds. "
+            "Works in combination with --check-every-n (whichever comes first). "
+            f"(default: {fi_settings.BENCHMARK_CHECK_INTERVAL_S})"
+        ),
+    )
+    
+    sync_group.add_argument(
+        "--check-every-n",
+        type=int,
+        default=None,
+        help=(
+            "Check signal file existence every N injections. "
+            "Works in combination with --check-interval (whichever comes first). "
+            f"(default: {fi_settings.BENCHMARK_CHECK_EVERY_N_INJECTIONS})"
+        ),
+    )
+    
+    sync_group.add_argument(
+        "--sync-timeout",
+        type=float,
+        default=None,
+        help=(
+            "Maximum seconds to wait for signal file to appear. "
+            "Campaign aborts if timeout is reached. "
+            "None = wait forever. "
+            f"(default: {fi_settings.BENCHMARK_SYNC_TIMEOUT})"
+        ),
+    )
+
 
 def _add_all_settings_overrides(parser: argparse.ArgumentParser) -> None:
     """
@@ -298,52 +487,40 @@ def _add_all_settings_overrides(parser: argparse.ArgumentParser) -> None:
         type=str,
         default=None,
         help=(
-            "Default board name when not explicitly specified "
-            f"(default: {fi_settings.DEFAULT_BOARD_NAME!r})"
+            "Set default board name "
+            f"(current: {fi_settings.DEFAULT_BOARD_NAME})"
         )
     )
     
     general_group.add_argument(
-        "--sem-clock-hz",
-        type=int,
-        default=None,
-        help=(
-            "SEM IP core clock frequency in Hz "
-            f"(default: {fi_settings.SEM_CLOCK_HZ})"
-        )
-    )
-    
-    general_group.add_argument(
-        "--log-filename",
+        "--log-file-basename",
         type=str,
         default=None,
         help=(
-            "Injection log filename "
-            f"(default: {fi_settings.LOG_FILENAME!r})"
+            "Override log file basename "
+            f"(current: {fi_settings.LOG_FILENAME})"
         )
     )
     
-    # Logging toggles group
-    # These use paired flags (--flag / --no-flag) for boolean control
+    # Message toggles group
     log_toggles = parser.add_argument_group(
-        "Logging Toggles",
-        "Enable/disable specific logging categories. "
-        "Use --flag to enable, --no-flag to disable."
+        "Message Toggles",
+        "Fine-grained control over what gets logged"
     )
     
-    # SystemDict loading
+    # System dictionary loading
     log_toggles.add_argument(
         "--log-systemdict",
         dest="log_systemdict",
         action="store_true",
         default=None,
-        help="Enable SystemDict loading logs"
+        help="Enable system dictionary loading logs"
     )
     log_toggles.add_argument(
         "--no-log-systemdict",
         dest="log_systemdict",
         action="store_false",
-        help="Disable SystemDict loading logs"
+        help="Disable system dictionary loading logs"
     )
     
     # Board resolution
@@ -361,37 +538,52 @@ def _add_all_settings_overrides(parser: argparse.ArgumentParser) -> None:
         help="Disable board resolution logs"
     )
     
-    # ACME expansion
-    log_toggles.add_argument(
-        "--log-acme",
-        dest="log_acme",
-        action="store_true",
-        default=None,
-        help="Enable ACME expansion logs"
-    )
-    log_toggles.add_argument(
-        "--no-log-acme",
-        dest="log_acme",
-        action="store_false",
-        help="Disable ACME expansion logs"
-    )
-    
     # Pool building
     log_toggles.add_argument(
-        "--log-pool-building",
-        dest="log_pool_building",
+        "--log-pool-built",
+        dest="log_pool_built",
         action="store_true",
         default=None,
         help="Enable pool building logs"
     )
     log_toggles.add_argument(
-        "--no-log-pool-building",
-        dest="log_pool_building",
+        "--no-log-pool-built",
+        dest="log_pool_built",
         action="store_false",
         help="Disable pool building logs"
     )
     
-    # Individual injections
+    # ACME expansion
+    log_toggles.add_argument(
+        "--log-acme-expansion",
+        dest="log_acme_expansion",
+        action="store_true",
+        default=None,
+        help="Enable ACME region expansion logs"
+    )
+    log_toggles.add_argument(
+        "--no-log-acme-expansion",
+        dest="log_acme_expansion",
+        action="store_false",
+        help="Disable ACME region expansion logs"
+    )
+    
+    # SEM preflight
+    log_toggles.add_argument(
+        "--log-sem-preflight",
+        dest="log_sem_preflight",
+        action="store_true",
+        default=None,
+        help="Enable SEM preflight logs"
+    )
+    log_toggles.add_argument(
+        "--no-log-sem-preflight",
+        dest="log_sem_preflight",
+        action="store_false",
+        help="Disable SEM preflight logs"
+    )
+    
+    # Injections
     log_toggles.add_argument(
         "--log-injections",
         dest="log_injections",
@@ -469,9 +661,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     _add_file_args(parser)
     _add_board_args(parser)
     _add_logging_args(parser)
+    _add_debug_args(parser)
     _add_gpio_args(parser)
     _add_seed_args(parser)
+    _add_tpool_export_args(parser)  
+    _add_benchmark_sync_args(parser)  
     _add_all_settings_overrides(parser)
+    _add_acme_args(parser)
 
     return parser
 

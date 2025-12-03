@@ -40,7 +40,7 @@ targets:
   # Register targets (flip-flops in the design)
   - kind: REG
     module_name: "alu"
-    reg_id: 0
+    reg_id: 200
     reg_name: "alu_out"
   
   - kind: REG

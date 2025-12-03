@@ -1,6 +1,6 @@
 # =============================================================================
-# FATORI-V • FI Targets
-# File: target_pool.py
+# FATORI-V • FI Targets Pool
+# File: pool.py
 # -----------------------------------------------------------------------------
 # TargetPool container for ordered sequences of injection targets.
 #=============================================================================
@@ -25,6 +25,7 @@ class TargetPool:
         - Store targets sequentially
         - Provide iteration via pop_next()
         - Track statistics (counts by kind/module)
+        - Analyze backend requirements (CONFIG vs REG targets)
     
     NOT responsible for:
         - Building itself (area profiles do that)
@@ -163,6 +164,75 @@ class TargetPool:
                 counts[target.module_name] = {"CONFIG": 0, "REG": 0}
             counts[target.module_name][target.kind.value] += 1
         return counts
+    
+    def has_config_targets(self) -> bool:
+        """
+        Check if pool contains any CONFIG (logic) targets.
+        
+        Used to determine if SEM backend initialization is needed.
+        Returns True if at least one CONFIG target exists.
+        
+        Returns:
+            True if pool contains CONFIG targets, False otherwise
+        
+        Example:
+            >>> if pool.has_config_targets():
+            ...     sem_proto = open_sem(cfg, log_ctx)
+        """
+        for target in self._targets:
+            if target.kind == TargetKind.CONFIG:
+                return True
+        return False
+    
+    def has_reg_targets(self) -> bool:
+        """
+        Check if pool contains any REG (register) targets.
+        
+        Used to determine if GPIO backend initialization is needed.
+        Returns True if at least one REG target exists.
+        
+        Returns:
+            True if pool contains REG targets, False otherwise
+        
+        Example:
+            >>> if pool.has_reg_targets():
+            ...     board_if = GPIOBoardInterface(cfg)
+        """
+        for target in self._targets:
+            if target.kind == TargetKind.REG:
+                return True
+        return False
+    
+    def get_backend_requirements(self) -> Dict[str, bool]:
+        """
+        Analyze pool to determine which backends are needed.
+        
+        This method scans the entire pool and returns a dictionary indicating
+        which backends (SEM for CONFIG, GPIO for REG) need to be initialized
+        based on the target types present in the pool.
+        
+        This enables conditional backend initialization:
+        - Only initialize SEM if CONFIG targets exist
+        - Only initialize GPIO if REG targets exist
+        - Skip unused backends entirely
+        
+        Returns:
+            Dict with keys "sem" and "gpio", values are bool
+        
+        Example:
+            >>> reqs = pool.get_backend_requirements()
+            >>> reqs
+            {'sem': True, 'gpio': False}  # CONFIG targets only
+            >>> 
+            >>> if reqs['sem']:
+            ...     sem_proto = open_sem(cfg, log_ctx)
+            >>> if reqs['gpio']:
+            ...     board_if = GPIOBoardInterface(cfg)
+        """
+        return {
+            "sem": self.has_config_targets(),
+            "gpio": self.has_reg_targets()
+        }
     
     def get_stats(self) -> Dict:
         """

@@ -37,9 +37,19 @@ MINIMAL = [
     ('campaign_header', True, True),
     ('campaign_footer', True, True),
     ('campaign_summary', True, True),
+
+    ('injection', True, True),        # File only - one per injection
+    
+    # Sync events - important lifecycle events
+    ('sync_waiting', True, True),
+    ('sync_ready', True, True),
+    ('sync_timeout', True, True),
+    ('sync_stopped', True, True),
     
     # Errors - always need to see these
     ('error', True, True),
+    ('gpio_error', True, True),              # GPIO validation errors
+    ('sem_preflight_error', True, True),     # SEM preflight failures
 ]
 
 
@@ -69,13 +79,35 @@ NORMAL = [
     ('board_resolution', True, True),
     ('sem_preflight', True, True),
     
+    # Sync events - important to see sync status
+    ('sync_waiting', True, True),
+    ('sync_ready', True, True),
+    ('sync_timeout', True, True),
+    ('sync_stopped', True, True),
+    
     # Pool building - important to verify target selection
     ('pool_built', True, True),
     ('acme_expansion', True, True),
     
+    # GPIO events
+    ('gpio_init', True, True),           # GPIO initialization
+    ('gpio_inject', False, True),        # File only - high frequency
+    ('gpio_error', True, True),          # Validation errors
+    ('gpio_placeholder', True, True),    # Unimplemented warning
+    
+    # SEM preflight events
+    ('sem_preflight_testing', True, True),  # Preflight start
+    ('sem_preflight_ok', True, True),       # Preflight success
+    ('sem_preflight_error', True, True),    # Preflight failure
+    
+    # Target list events
+    ('target_list_loading', True, True),    # Pool loading
+    ('target_list_loaded', True, True),     # Pool loaded
+    ('target_list_stats', True, True),      # Pool statistics
+    
     # High-frequency events - file only (too noisy for console)
     ('acme_cache_hit', False, True),  # File only - performance info
-    ('injection', False, True),        # File only - one per injection
+    ('injection', True, True),        # File only - one per injection
     ('sem_command', False, True),      # File only - high frequency
     ('sem_response', False, True),     # File only - high frequency
     
@@ -109,10 +141,35 @@ VERBOSE = [
     ('board_resolution', True, True),
     ('sem_preflight', True, True),
     
+    # Sync events - all visible
+    ('sync_waiting', True, True),
+    ('sync_ready', True, True),
+    ('sync_timeout', True, True),
+    ('sync_stopped', True, True),
+    
     # Pool building
     ('pool_built', True, True),
     ('acme_expansion', True, True),
     ('acme_cache_hit', True, True),  # Now visible on console
+    
+    # GPIO events - all visible
+    ('gpio_init', True, True),
+    ('gpio_inject', True, True),       # See every injection
+    ('gpio_error', True, True),
+    ('gpio_placeholder', True, True),
+    
+    # SEM preflight events - all visible
+    ('sem_preflight_testing', True, True),
+    ('sem_preflight_ok', True, True),
+    ('sem_preflight_error', True, True),
+    
+    # ACME debug events
+    ('acme_debug', True, True),        # ACME debug info (env var controlled)
+    
+    # Target list events - all visible
+    ('target_list_loading', True, True),
+    ('target_list_loaded', True, True),
+    ('target_list_stats', True, True),
     
     # High-frequency events - all visible
     ('injection', True, True),        # See every injection happen

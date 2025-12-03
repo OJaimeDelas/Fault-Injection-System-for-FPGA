@@ -34,7 +34,7 @@ def cleanup_resources(transport=None, log_ctx=None):
     # Close log file
     if log_ctx is not None:
         try:
-            from fi.log import events
+            from fi.core.logging import events
             events.close_log_file()
         except Exception:
             # Ignore errors during cleanup

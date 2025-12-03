@@ -1,12 +1,12 @@
 # =============================================================================
-# FATORI-V • FI Targets
-# File: acme_sem_decoder.py
+# FATORI-V • FI Backend ACME
+# File: decoder.py
 # -----------------------------------------------------------------------------
-# Clean ACME interface for area profiles to expand regions to addresses.
+# High-level ACME decoder interface for area profiles.
 #=============================================================================
 
-from typing import List
 import logging
+from typing import List, Optional, Dict
 
 from fi.core.logging.events import log_acme_expansion, log_error
 
@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 def expand_pblock_to_config_bits(
-    region: str,
+    region: Dict[str, int],
     board_name: str,
-    ebd_path: str
+    ebd_path: str,
+    use_cache: bool = True,
+    cache_dir: str = "gen/acme"
 ) -> List[str]:
     """
     Convert pblock region coordinates to configuration bit addresses.
@@ -26,7 +28,7 @@ def expand_pblock_to_config_bits(
     global state or setup is required.
     
     Args:
-        region: Region string (e.g., "CLOCKREGION_X1Y2:CLOCKREGION_X1Y3")
+        region: Dict with coordinates {'x_lo': int, 'y_lo': int, 'x_hi': int, 'y_hi': int}
         board_name: Board name (e.g., "basys3", "xcku040")
         ebd_path: Path to .ebd essential bits file
     
@@ -41,10 +43,11 @@ def expand_pblock_to_config_bits(
         - Empty list returned on any error (check logs for details)
     
     Example:
+        >>> region = {'x_lo': 50, 'y_lo': 50, 'x_hi': 75, 'y_hi': 65}
         >>> addresses = expand_pblock_to_config_bits(
-        ...     region="CLOCKREGION_X1Y2:CLOCKREGION_X1Y3",
+        ...     region=region,
         ...     board_name="xcku040",
-        ...     ebd_path="fi/acme/design.ebd"
+        ...     ebd_path="backend/acme/design.ebd"
         ... )
         >>> len(addresses)
         1250
@@ -55,34 +58,31 @@ def expand_pblock_to_config_bits(
     
     # Create ACME engine on-demand for this board/EBD combination
     try:
-        engine = make_acme_engine(board_name=board_name, ebd_path=ebd_path)
+        engine = make_acme_engine(
+            board_name=board_name,
+            ebd_path=ebd_path,
+            cache_dir=cache_dir
+        )
     except Exception as e:
         log_error(f"Failed to create ACME engine for board '{board_name}'", exc=e)
-        logger.error(f"Failed to create ACME engine for board '{board_name}': {e}")
         return []
-    
+
     # Expand region to configuration bit addresses
     try:
-        addresses = engine.expand_region_to_config_bits(region)
+        addresses = engine.expand_region_to_config_bits(region, use_cache=use_cache)
     except Exception as e:
         log_error(f"ACME expansion failed for region {region}", exc=e)
-        logger.error(f"ACME expansion failed for region {region}: {e}")
         return []
-    
-    # Log successful expansion
-    log_acme_expansion(region, len(addresses))
-    
-    logger.info(
-        f"ACME expanded region {region} to {len(addresses)} config bits"
-    )
-    
+
     return addresses
 
 
 def expand_device_to_config_bits(
-    full_device_region: str,
+    device_coords: Dict[str, int],
     board_name: str,
-    ebd_path: str
+    ebd_path: str,
+    use_cache: bool = True,
+    cache_dir: str = "gen/acme"
 ) -> List[str]:
     """
     Expand entire device region to configuration bit addresses.
@@ -92,7 +92,7 @@ def expand_device_to_config_bits(
     with a more descriptive name for device-wide expansion.
     
     Args:
-        full_device_region: Full device region string from SystemDict
+        device_coords: Dict with full device bounds {'x_lo': int, 'y_lo': int, 'x_hi': int, 'y_hi': int}
         board_name: Board name (e.g., "basys3", "xcku040")
         ebd_path: Path to .ebd essential bits file
     
@@ -101,16 +101,20 @@ def expand_device_to_config_bits(
         Returns empty list on error (errors are logged)
     
     Example:
+        >>> device_coords = {'x_lo': 0, 'y_lo': 0, 'x_hi': 358, 'y_hi': 310}
         >>> addresses = expand_device_to_config_bits(
-        ...     full_device_region="CLOCKREGION_X0Y0:CLOCKREGION_X8Y8",
+        ...     device_coords=device_coords,
         ...     board_name="xcku040",
-        ...     ebd_path="fi/acme/design.ebd"
+        ...     ebd_path="backend/acme/design.ebd"
         ... )
         >>> len(addresses)
-        45000  # Entire device has many more addresses
+        45000  # Entire device has many addresses
     """
+    # Forward directly to pblock expansion - same mechanism
     return expand_pblock_to_config_bits(
-        region=full_device_region,
-        board_name=board_name,
-        ebd_path=ebd_path
+        device_coords, 
+        board_name, 
+        ebd_path, 
+        use_cache=use_cache,
+        cache_dir=cache_dir
     )

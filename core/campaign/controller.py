@@ -7,11 +7,14 @@
 
 from typing import Optional
 import time
+import logging
 
 from fi.targets.pool import TargetPool
 from fi.targets.types import TargetSpec
 from fi.targets import router
 from fi.core.logging.events import log_injection
+
+logger = logging.getLogger(__name__)
 
 
 class InjectionController:
@@ -24,6 +27,7 @@ class InjectionController:
     - Log injection results
     - Track statistics
     - Provide timing utilities
+    - Synchronize with external benchmarks (optional)
     
     Responsibilities:
         - Target iteration (pop_next from pool)
@@ -31,6 +35,7 @@ class InjectionController:
         - Statistics tracking (total, successes, failures)
         - Timing helpers (sleep)
         - Stop control (for early termination)
+        - Benchmark synchronization (optional file-based)
     
     NOT responsible for:
         - Building TargetPool (done by area profiles)
@@ -48,7 +53,8 @@ class InjectionController:
         sem_proto,
         target_pool: TargetPool,
         board_if,
-        log_ctx
+        log_ctx,
+        benchmark_sync=None
     ):
         """
         Initialize injection controller.
@@ -58,11 +64,13 @@ class InjectionController:
             target_pool: Pre-built TargetPool ready for injection
             board_if: Board interface for REG injections
             log_ctx: Logging context (currently unused, kept for compatibility)
+            benchmark_sync: Optional BenchmarkSync for external coordination
         """
         self._sem_proto = sem_proto
         self._pool = target_pool
         self._board_if = board_if
         self._log_ctx = log_ctx
+        self._benchmark_sync = benchmark_sync
         
         # Statistics tracking
         self._total_injections = 0
@@ -71,6 +79,10 @@ class InjectionController:
         
         # Stop flag for early termination
         self._stop_flag = False
+
+        # Termination reason tracking
+        # Set by time profiles or controller when campaign ends
+        self._termination_reason = "unknown"
     
     # -------------------------------------------------------------------------
     # Target iteration
@@ -100,10 +112,17 @@ class InjectionController:
         """
         Route target to appropriate backend and log result.
         
-        This method:
-        1. Routes target to SEM (CONFIG) or GPIO (REG) via router
-        2. Updates statistics
-        3. Logs injection result
+        Execution priority order:
+        1. Check external benchmark sync (if enabled)
+        2. Capture timestamp BEFORE injection (accuracy critical)
+        3. Route target to backend (SEM or GPIO, non-blocking)
+        4. Update statistics
+        5. Log injection with captured timestamp (async)
+        6. Update sync tracking
+        
+        The timestamp is captured immediately before injection to ensure
+        maximum accuracy. This allows time profiles to maintain precise
+        injection rates regardless of logging or other overhead.
         
         Args:
             target: TargetSpec to inject
@@ -116,7 +135,19 @@ class InjectionController:
             >>> if target:
             ...     success = controller.inject_target(target)
         """
+        # Check if benchmark stopped (periodic file check)
+        if self._benchmark_sync and self._benchmark_sync.should_check():
+            if not self._benchmark_sync.check_benchmark_active():
+                logger.info("Benchmark stopped - halting campaign")
+                self.request_stop()
+                return False
+        
         self._total_injections += 1
+
+        # Capture timestamp BEFORE injection for maximum accuracy
+        # This ensures logged times reflect actual injection moments,
+        # not completion times or logging times
+        injection_timestamp = time.monotonic()
         
         # Route to appropriate backend (CONFIG → SEM, REG → GPIO)
         # Note: router.inject_target handles the dispatching
@@ -133,8 +164,13 @@ class InjectionController:
         else:
             self._failures += 1
         
-        # Log injection result
-        log_injection(target, success)
+        # Log injection result with captured timestamp
+        # Logging happens after injection to avoid delaying next injection
+        log_injection(target, success, timestamp=injection_timestamp)
+        
+        # Update sync tracking (increment injection counter)
+        if self._benchmark_sync:
+            self._benchmark_sync.on_injection()
         
         return success
     
@@ -161,7 +197,8 @@ class InjectionController:
         return {
             "total": self._total_injections,
             "successes": self._successes,
-            "failures": self._failures
+            "failures": self._failures,
+            "termination_reason": self._termination_reason
         }
     
     # -------------------------------------------------------------------------
@@ -192,7 +229,7 @@ class InjectionController:
         
         Sets the stop flag. Time profiles should check should_stop()
         and exit gracefully. This is typically called by signal handlers
-        or external monitoring.
+        or external monitoring (including benchmark sync).
         
         Example:
             >>> # In signal handler
@@ -201,6 +238,36 @@ class InjectionController:
         """
         self._stop_flag = True
     
+    
+    def set_termination_reason(self, reason: str):
+        """
+        Set the reason why the campaign is terminating.
+        
+        This should be called by time profiles when they detect a termination
+        condition (pool exhausted, duration reached, etc.).
+        
+        Args:
+            reason: Human-readable termination reason
+            
+        Example reasons:
+            - "Target pool exhausted"
+            - "Duration limit reached"
+            - "Benchmark stopped"
+            - "User interrupt"
+            - "Stop requested"
+        """
+        self._termination_reason = reason
+    
+    def get_termination_reason(self) -> str:
+        """
+        Get the reason why the campaign terminated.
+        
+        Returns:
+            Termination reason string
+        """
+        return self._termination_reason
+
+
     # -------------------------------------------------------------------------
     # Timing utilities
     # -------------------------------------------------------------------------
@@ -233,7 +300,8 @@ def create_injection_controller(
     sem_proto,
     target_pool: TargetPool,
     board_if,
-    log_ctx
+    log_ctx,
+    benchmark_sync=None
 ) -> InjectionController:
     """
     Factory function to create InjectionController.
@@ -246,6 +314,7 @@ def create_injection_controller(
         target_pool: Pre-built TargetPool
         board_if: Board interface for GPIO
         log_ctx: Logging context
+        benchmark_sync: Optional BenchmarkSync for external coordination
     
     Returns:
         Initialized InjectionController
@@ -255,12 +324,14 @@ def create_injection_controller(
         ...     sem_proto=proto,
         ...     target_pool=pool,
         ...     board_if=board_if,
-        ...     log_ctx=log_ctx
+        ...     log_ctx=log_ctx,
+        ...     benchmark_sync=sync
         ... )
     """
     return InjectionController(
         sem_proto=sem_proto,
         target_pool=target_pool,
         board_if=board_if,
-        log_ctx=log_ctx
+        log_ctx=log_ctx,
+        benchmark_sync=benchmark_sync
     )

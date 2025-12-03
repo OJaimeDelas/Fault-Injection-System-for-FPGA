@@ -63,21 +63,22 @@ class PoissonTimeProfile:
         current_t = start_t
 
         while True:
+            # Check for external stop signal
             if controller.should_stop():
+                controller.set_termination_reason("Stop requested")
                 break
-
+            
+            # Check optional duration limit
             if self._duration_s is not None:
-                elapsed = current_t - start_t
+                elapsed = base.now_monotonic() - start_t
                 if elapsed >= self._duration_s:
+                    controller.set_termination_reason("Duration limit reached")
                     break
-
-            # Draw a random inter-arrival time.
-            delta_t = base.sample_exponential(self._rng, self._rate_hz)
-            current_t += delta_t
-
-            # Obtain next target.
+            
+            # Get next target
             target = controller.next_target()
             if target is None:
+                controller.set_termination_reason("Target pool exhausted")
                 break
 
             now = base.now_monotonic()

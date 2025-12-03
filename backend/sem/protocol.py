@@ -104,17 +104,30 @@ class SemProtocol:
 
     def inject_lfa(self, lfa_hex: str) -> None:
         """
-        Issue an injection command using the LFA encoding. No implicit state
-        management occurs here; higher layers own policy decisions.
+        Issue fault injection command using LFA encoding.
+        
+        FIRE-AND-FORGET mode for campaign injection:
+        Sends the injection command ('N <address>') and returns immediately
+        without waiting for response. This prioritizes timing accuracy which
+        is critical for time profiles maintaining precise injection rates.
+        
+        The SEM IP core processes injections asynchronously. Response verification
+        is not required during campaigns - the command transmission itself is what
+        triggers the hardware fault injection.
+        
+        For setup/console verification where responses are needed, use the
+        state management commands (goto_idle, goto_observe, status) which do
+        wait for responses.
+        
+        Args:
+            lfa_hex: LFA address in hex format (e.g., "00001234")
         """
         command = f"N {lfa_hex}"
         self._tr.write_line(command)
         
-        # Collect response (typically "SC 10" then "SC 00" then prompt)
-        lines = self._collect_short_window()
-        
-        # Log SEM interaction
-        log_sem_command(command, lines)
+        # Return immediately - no response collection for campaigns
+        # This ensures injection timing is not compromised by waiting
+        # for SEM's acknowledgment messages ("SC 10", "SC 00", etc.)
 
     def passthrough(self, raw: str) -> None:
         """Send an arbitrary raw SEM command line."""

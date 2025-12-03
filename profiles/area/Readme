@@ -1,237 +1,235 @@
-# Area Profiles — WHERE to Inject
+# Area Profiles
 
-Area profiles decide which targets to inject into by building a TargetPool.
-The pool is built upfront with targets in injection order.
+Area profiles define **which targets** to inject during a fault injection campaign. They are responsible for building a `TargetPool` containing an ordered sequence of injection targets.
 
-## API Contract
+## Overview
 
-Every area profile module must define:
+Area profiles control:
+- **Target selection**: Which modules, registers, or configuration bits to target
+- **Pool size**: How many targets to include
+- **Target order**: The sequence in which targets are injected
+- **Filtering**: Which targets to include or exclude based on criteria
 
-### Module-Level Exports
-```python
-PROFILE_KIND = "area"  # Always "area"
-PROFILE_NAME = "myprofile"  # Unique name (optional, defaults to filename)
+Area profiles do NOT control:
+- **When injections happen**: That's the responsibility of time profiles
+- **How targets are injected**: That's handled by the injection controller and backends
 
-def describe() -> str:
-    """Human-readable description of what this profile does."""
-    return "My custom injection strategy"
+## Available Profiles
 
-def default_args() -> Dict[str, Any]:
-    """Default argument values for this profile."""
-    return {
-        "param1": default_value1,
-        "param2": default_value2,
-        # Common args: seed, ratio, repetition, mode, include, exclude
-    }
+### `device`
+Targets the entire FPGA device indiscriminately.
 
-def make_profile(args: Dict[str, Any], *, global_seed, settings) -> AreaProfileBase:
-    """
-    Factory function to create profile instance.
-    
-    Args:
-        args: Argument dict (CLI args merged with defaults)
-        global_seed: Master seed for reproducibility (or None)
-        settings: fi_settings module
-    
-    Returns:
-        Profile instance
-    """
-    merged = default_args()
-    merged.update(args)
-    return MyProfile(name=PROFILE_NAME, args=merged, global_seed=global_seed)
+**Usage:**
+```bash
+python3 -m fi.fault_injection --area device
 ```
 
-### Profile Instance
+**Arguments:**
+- `pool_size`: Number of targets to generate (default: 1000)
+- `ratio`: Fraction of REG targets vs CONFIG targets, 0.0-1.0 (default: 0.0, all CONFIG)
 
-The profile class must extend `AreaProfileBase` and implement:
-```python
-class MyProfile(AreaProfileBase):
-    def build_pool(self, system_dict, board_name, ebd_path) -> TargetPool:
-        """
-        Build complete TargetPool for injection.
-        
-        This method should:
-        1. Extract data from system_dict (modules, registers, pblocks)
-        2. Generate/expand targets (call ACME for logic addresses)
-        3. Apply selection strategy (module order, ratio, etc.)
-        4. Return TargetPool with targets in final injection order
-        
-        Returns:
-            TargetPool ready for injection
-        """
-        pool = TargetPool()
-        # ... build logic ...
-        return pool
+**Example:**
+```bash
+# 500 targets, 30% registers, 70% configuration bits
+python3 -m fi.fault_injection \
+    --area device \
+    --area-args "pool_size=500,ratio=0.3"
 ```
 
-## Common Arguments
+### `modules`
+Targets specific modules by name.
 
-These arguments are supported by most area profiles:
-
-- **seed** (int): Override seed for this profile (for reproducibility)
-- **ratio** (float): Reg probability (0.0=all logic, 1.0=all reg)
-- **repetition** (bool): Allow same target multiple times
-
-Module-based profiles also support:
-
-- **include** (str): Comma-separated module names to include
-- **exclude** (str): Comma-separated modules to exclude
-- **mode** (str): sequential, round_robin, random, weighted
-- **weights** (str): For weighted mode, e.g., "alu:3,lsu:1,decoder:2"
-- **pool_size** (int): Limit total number of targets
-
-## Built-in Profiles
-
-- **modules**: Inject into specific modules with two-level selection
-- **device**: Inject into entire device (all config bits)
-- **target_list**: Load explicit pool from YAML file
-- **address_list**: Load address list from text file (legacy)
-
-## Utilities
-
-### ModuleSelector (common/module_selection.py)
-
-Handles module selection strategies:
-```python
-from fi.profiles.area.module_selection import ModuleSelector
-
-selector = ModuleSelector(
-    modules=["alu", "lsu", "decoder"],
-    mode="round_robin",  # or sequential, random, weighted
-    weights={"alu": 3, "lsu": 1},  # for weighted mode
-    rng=self.rng
-)
-
-module = selector.next_module()  # Get next module
+**Usage:**
+```bash
+python3 -m fi.fault_injection \
+    --area modules \
+    --area-args "pool_size=100,ratio=0.5"
 ```
 
-**Modes:**
-- **sequential**: Exhausts each module before moving to next
-- **round_robin**: Cycles through modules one at a time
-- **random**: Uniform random selection
-- **weighted**: Random with configurable weights
+**Arguments:**
+- `pool_size`: Total number of targets (default: 1000)
+- `ratio`: Fraction of REG targets (default: 0.0)
+- `modules`: Comma-separated module names (default: all modules)
 
-### RatioSelector (common/ratio_utils.py)
-
-Handles probabilistic reg/logic selection:
-```python
-from fi.profiles.area.ratio_utils import RatioSelector
-
-selector = RatioSelector(ratio=0.25, rng=self.rng)  # 25% reg, 75% logic
-
-if selector.should_select_reg():
-    target = pick_from(reg_targets)
-else:
-    target = pick_from(logic_targets)
+**Example:**
+```bash
+# Target only ALU and LSU modules
+python3 -m fi.fault_injection \
+    --area modules \
+    --area-args "pool_size=200,modules=alu,lsu"
 ```
 
-**Ratio interpretation:**
-- 0.0: All logic (CONFIG targets)
-- 0.5: 50/50 mix
-- 1.0: All registers (REG targets)
+### `target_list`
+Load explicit target list from YAML file.
 
-## Writing a New Profile
+**Usage:**
+```bash
+python3 -m fi.fault_injection \
+    --area target_list \
+    --area-args "pool_file=/path/to/targets.yaml"
+```
 
-1. Create `myprofile.py` in `fi/profiles/area/`
-2. Implement the API contract (PROFILE_NAME, describe, default_args, make_profile)
-3. Extend AreaProfileBase and implement build_pool()
-4. Use base class utilities (self.rng for randomness)
-5. Use ModuleSelector and RatioSelector if needed
-6. Profile is auto-discovered by profile_loader
+**Arguments:**
+- `pool_file`: Path to YAML file with target list (required)
 
-### Example
+**YAML Format:**
+```yaml
+targets:
+  - kind: CONFIG
+    module_name: "ibex_controller"
+    config_address: "12345678"
+    pblock_name: "controller_region"
+  
+  - kind: REG
+    module_name: "ibex_controller"
+    reg_id: 7
+    reg_name: "pc"
+```
+
+### `input`
+Load external custom area profile from a Python module.
+
+**Usage:**
+```bash
+python3 -m fi.fault_injection \
+    --area input \
+    --area-args "module_path=/path/to/custom_profile.py"
+```
+
+**Arguments:**
+- `module_path`: Path to external .py file implementing area profile interface (required)
+- Additional arguments are passed through to the external profile
+
+## Creating Custom Profiles
+
+### Option 1: Add to fi/profiles/area/
+
+Create a new Python file in `fi/profiles/area/` following the standard interface:
 ```python
-# fi/profiles/area/simple_random.py
-
-from fi.profiles.area.base import AreaProfileBase
-from fi.targets.pool import TargetPool
-from fi.targets.types import TargetSpec, TargetKind
-from fi.targets.acme_sem_decoder import expand_pblock_to_config_bits
+# fi/profiles/area/my_profile.py
 
 PROFILE_KIND = "area"
-PROFILE_NAME = "simple_random"
+PROFILE_NAME = "my_profile"
 
 def describe():
-    return "Randomly select targets from all modules"
+    return "My custom area profile"
 
 def default_args():
     return {
-        "count": 100,  # How many targets
-        "seed": None
+        "my_param": 42
     }
 
 def make_profile(args, *, global_seed, settings):
-    merged = default_args()
-    merged.update(args)
-    return SimpleRandomProfile(
-        name=PROFILE_NAME,
-        args=merged,
-        global_seed=global_seed
-    )
-
-class SimpleRandomProfile(AreaProfileBase):
-    def build_pool(self, system_dict, board_name, ebd_path):
-        pool = TargetPool()
-        board_dict = system_dict.boards[board_name]
-        count = self.args["count"]
-        
-        # Collect all possible targets
-        all_targets = []
-        for module_name, module_info in board_dict.modules.items():
-            # Add register targets
-            for reg_id in module_info.registers:
-                all_targets.append(TargetSpec(
-                    kind=TargetKind.REG,
-                    module_name=module_name,
-                    reg_id=reg_id,
-                    source="profile:simple_random"
-                ))
-            
-            # Add logic targets via ACME
-            addresses = expand_pblock_to_config_bits(
-                region=module_info.pblock.region,
-                board_name=board_name,
-                ebd_path=ebd_path
-            )
-            for addr in addresses:
-                all_targets.append(TargetSpec(
-                    kind=TargetKind.CONFIG,
-                    module_name=module_name,
-                    config_address=addr,
-                    pblock_name=module_info.pblock.name,
-                    source="profile:simple_random"
-                ))
-        
-        # Randomly sample targets
-        selected = self.rng.sample(all_targets, min(count, len(all_targets)))
-        for target in selected:
-            pool.add(target)
-        
-        return pool
+    from fi.profiles.area.base import AreaProfileBase
+    
+    class MyProfile(AreaProfileBase):
+        def build_pool(self, system_dict, board_name, ebd_path):
+            from fi.targets.pool import TargetPool
+            pool = TargetPool()
+            # Your target selection logic here
+            return pool
+    
+    return MyProfile(PROFILE_NAME, args, global_seed)
 ```
 
-## Testing Profiles
+### Option 2: Use External Profile with `input`
 
-Test your profile with:
-```bash
-python -m fi.fault_injection \
-    --area myprofile \
-    --area-args "param1=value1,param2=value2" \
-    --system-dict path/to/dict.yaml
-```
-
-## Seed Management
-
-Each profile gets its own RNG for reproducibility:
+Create a Python file anywhere in your file system:
 ```python
-# In build_pool(), use self.rng for all random operations
-module = self.rng.choice(modules)
-target = self.rng.sample(targets, 10)
+# /home/user/my_custom_area.py
+
+PROFILE_KIND = "area"
+PROFILE_NAME = "my_custom"
+
+def describe():
+    return "My custom area profile"
+
+def default_args():
+    return {
+        "my_param": 42,
+        "filter_pattern": "alu*"
+    }
+
+def make_profile(args, *, global_seed, settings):
+    from fi.profiles.area.base import AreaProfileBase
+    from fi.targets.pool import TargetPool
+    from fi.targets.types import TargetSpec, TargetKind
+    
+    class MyCustomProfile(AreaProfileBase):
+        def __init__(self, name, args, seed):
+            super().__init__(name, args, seed)
+            self.my_param = int(args.get("my_param", 42))
+            self.filter_pattern = args.get("filter_pattern", "*")
+        
+        def build_pool(self, system_dict, board_name, ebd_path):
+            pool = TargetPool()
+            
+            # Your custom target selection logic
+            # Access system_dict, use self.my_param, etc.
+            
+            return pool
+    
+    return MyCustomProfile("my_custom", args, global_seed)
 ```
 
-Seed derivation hierarchy:
-1. Explicit `--area-seed` (highest priority)
-2. Derived from `--global-seed` via hash
-3. Random seed (if no seeds provided)
+**Usage:**
+```bash
+python3 -m fi.fault_injection \
+    --area input \
+    --area-args "module_path=/home/user/my_custom_area.py,my_param=100,filter_pattern=lsu*"
+```
 
-Same seed → same pool every time.
+**Interface Requirements:**
+
+External profiles must define:
+- `PROFILE_KIND = "area"` (constant)
+- `PROFILE_NAME` (string constant)
+- `describe()` - return description string
+- `default_args()` - return dict of default arguments
+- `make_profile(args, *, global_seed, settings)` - return profile object
+
+The profile object returned by `make_profile()` must have:
+- `build_pool(system_dict, board_name, ebd_path)` method that returns a `TargetPool`
+
+**Validation:**
+
+The `input` profile validates external modules to ensure they implement the required interface. Clear error messages are provided if validation fails.
+
+## Profile Development Tips
+
+1. **Inherit from AreaProfileBase**: Provides common functionality and name tracking
+2. **Use TargetPool.add()**: Add targets one at a time in injection order
+3. **Respect pool_size**: Honor the requested pool size from arguments
+4. **Document arguments**: Provide clear default_args() and document behavior
+5. **Handle missing data**: Gracefully handle cases where modules/registers don't exist
+6. **Use ACME for CONFIG**: Use ACME to map pblock regions to configuration addresses
+7. **Validate inputs**: Check argument types and ranges early
+
+## Argument Parsing
+
+Area profile arguments are passed as a comma-separated string via `--area-args`:
+```bash
+--area-args "key1=value1,key2=value2,key3=value3"
+```
+
+The loader parses this into a dictionary:
+```python
+{
+    "key1": "value1",
+    "key2": "value2", 
+    "key3": "value3"
+}
+```
+
+All values are strings initially. Profiles should convert to appropriate types:
+```python
+pool_size = int(args.get("pool_size", 1000))
+ratio = float(args.get("ratio", 0.0))
+enabled = args.get("enabled", "true").lower() == "true"
+```
+
+## See Also
+
+- Time Profiles: Control when injections happen
+- Target Types: CONFIG vs REG target specifications
+- TargetPool: Container for ordered injection targets

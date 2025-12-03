@@ -47,6 +47,7 @@ class SerialConfig:
     """
     device: str
     baud: int
+    debug: bool = False
 
 
 class SemTransport:
@@ -80,21 +81,40 @@ class SemTransport:
     # ---------------------------- lifecycle -----------------------------------
     def open(self) -> None:
         """Open the serial port with timeouts controlled by console settings."""
-        if serial is None:
+        if serial is None and not self._cfg.debug:
             raise RuntimeError("pyserial not available")
+        
         try:
-            self._ser = serial.Serial(
-                port=self._cfg.device,
-                baudrate=self._cfg.baud,
-                timeout=float(getattr(cs, "READ_TIMEOUT_S", 0.05)),
-                write_timeout=float(getattr(cs, "WRITE_TIMEOUT_S", 0.10)),
-            )
-            # Optional settle window after open.
+            if self._cfg.debug:
+                # Import stub serial for debug mode
+                from fi.backend.common.serial_stub import StubSerial
+                
+                self._ser = StubSerial(
+                    port=self._cfg.device,
+                    baudrate=self._cfg.baud,
+                    timeout=float(getattr(cs, "READ_TIMEOUT_S", 0.05)),
+                    write_timeout=float(getattr(cs, "WRITE_TIMEOUT_S", 0.10)),
+                )
+                # StubSerial needs explicit open
+                if not self._ser.is_open:
+                    self._ser.open()
+            else:
+                # Real serial connection
+                self._ser = serial.Serial(
+                    port=self._cfg.device,
+                    baudrate=self._cfg.baud,
+                    timeout=float(getattr(cs, "READ_TIMEOUT_S", 0.05)),
+                    write_timeout=float(getattr(cs, "WRITE_TIMEOUT_S", 0.10)),
+                )
+            
+            # Optional settle window after open
             open_delay = float(getattr(cs, "OPEN_TIMEOUT_S", 0.0))
             if open_delay > 0.0:
                 time.sleep(open_delay)
+                
         except Exception as e:
             raise RuntimeError(f"Failed to open {self._cfg.device} @ {self._cfg.baud}: {e}")
+
 
     def close(self) -> None:
         """Stop the reader thread (if running) and close the serial port."""
@@ -122,6 +142,27 @@ class SemTransport:
         n = self._ser.write(data)
         if n != len(data):
             raise RuntimeError("Short write on serial port")
+
+    def write_bytes(self, data: bytes) -> None:
+        """
+        Write raw bytes to the UART without any terminator or encoding.
+        
+        This method is used for binary protocol commands (e.g., register injection)
+        where line termination is not desired. Unlike write_line(), this method
+        sends the exact bytes provided without modification.
+        
+        Args:
+            data: Raw bytes to transmit
+        
+        Raises:
+            RuntimeError: If serial port is not open or write fails
+        """
+        if self._ser is None:
+            raise RuntimeError("Serial port not open")
+        n = self._ser.write(data)
+        if n != len(data):
+            raise RuntimeError("Short write on serial port")
+
 
     # ---------------------------- reader --------------------------------------
     def start_reader(self) -> None:

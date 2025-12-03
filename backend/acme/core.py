@@ -208,7 +208,8 @@ def parse_ebd_to_lfas(ebd_path: str | Path, board) -> Iterator[str]:
             if lfa_tok:
                 # Tokens take precedence; they do not use WF/word_index mapping.
                 if dbg_enabled and dbg_shown < dbg_max_shows:
-                    print(f"[DEBUG][ACME] token LFA: {lfa_tok}")
+                    from fi.core.logging.events import log_acme_debug
+                    log_acme_debug("token", lfa=lfa_tok)
                     dbg_shown += 1
                 yield lfa_tok
                 continue
@@ -227,7 +228,8 @@ def parse_ebd_to_lfas(ebd_path: str | Path, board) -> Iterator[str]:
                             if len(samples) >= dbg_inner_n:
                                 break
                     if samples:
-                        print(f"[DEBUG][ACME] W={word_index} → (LA={la}, WORD={word}), samples={samples}")
+                        from fi.core.logging.events import log_acme_debug
+                        log_acme_debug("word", word_index=word_index, la=la, word=word, samples=samples)
                         dbg_shown += 1
                 # Emit all bits
                 for lfa in _emit_word_bits(la, word, line):
@@ -252,7 +254,8 @@ def parse_ebd_to_lfas(ebd_path: str | Path, board) -> Iterator[str]:
                                 if len(samples) >= dbg_inner_n:
                                     break
                         if samples:
-                            print(f"[DEBUG][ACME] W={word_index} → (LA={la}, WORD={word}), samples={samples}")
+                            from fi.core.logging.events import log_acme_debug
+                            log_acme_debug("word", word_index=word_index, la=la, word=word, samples=samples)
                             dbg_shown += 1
                     for lfa in _emit_word_bits(la, word, chunk):
                         yield lfa

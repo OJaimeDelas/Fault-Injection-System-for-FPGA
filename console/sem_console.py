@@ -30,16 +30,16 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         prog="fi.console.sem_console",
         description="Interactive SEM console over UART.",
     )
-
+ 
     parser.add_argument(
         "--dev",
-        default=settings.DEFAULT_SEM_DEVICE,
+        default=settings.DEFAULT_DEVICE,
         help="Serial device path for SEM UART (e.g. /dev/ttyUSB0).",
     )
     parser.add_argument(
         "--baud",
         type=int,
-        default=settings.DEFAULT_SEM_BAUDRATE,
+        default=settings.DEFAULT_BAUDRATE,
         help="Serial baudrate for SEM UART.",
     )
 

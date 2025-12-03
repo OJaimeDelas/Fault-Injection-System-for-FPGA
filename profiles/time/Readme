@@ -1,0 +1,292 @@
+# Time Profiles
+
+Time profiles define **when and how** injections are executed during a fault injection campaign. They control the temporal behavior of the campaign.
+
+## Overview
+
+Time profiles control:
+- **Injection scheduling**: When each injection occurs
+- **Delays**: Time between injections
+- **Iteration strategy**: Sequential, random, or custom order
+- **Campaign duration**: How long the campaign runs
+
+Time profiles do NOT control:
+- **Which targets to inject**: That's the responsibility of area profiles
+- **How targets are injected**: That's handled by the injection controller and backends
+
+## Available Profiles
+
+### `uniform`
+Inject all targets sequentially with uniform delay between injections.
+
+**Usage:**
+```bash
+python3 -m fi.fault_injection --time uniform
+```
+
+**Arguments:**
+- `delay`: Seconds between injections (default: 0.0, no delay)
+
+**Example:**
+```bash
+# Inject all targets with 1 second between injections
+python3 -m fi.fault_injection \
+    --time uniform \
+    --time-args "delay=1.0"
+```
+
+**Behavior:**
+1. Iterate through TargetPool sequentially
+2. Inject each target
+3. Sleep for specified delay
+4. Continue until pool exhausted
+
+### `burst`
+Inject targets in bursts with delays between bursts.
+
+**Usage:**
+```bash
+python3 -m fi.fault_injection \
+    --time burst \
+    --time-args "burst_size=10,burst_delay=2.0"
+```
+
+**Arguments:**
+- `burst_size`: Number of injections per burst (default: 10)
+- `burst_delay`: Seconds between bursts (default: 1.0)
+- `injection_delay`: Seconds between injections within burst (default: 0.0)
+
+**Example:**
+```bash
+# Inject 5 targets rapidly, wait 3 seconds, repeat
+python3 -m fi.fault_injection \
+    --time burst \
+    --time-args "burst_size=5,burst_delay=3.0"
+```
+
+### `input`
+Load external custom time profile from a Python module.
+
+**Usage:**
+```bash
+python3 -m fi.fault_injection \
+    --time input \
+    --time-args "module_path=/path/to/custom_profile.py"
+```
+
+**Arguments:**
+- `module_path`: Path to external .py file implementing time profile interface (required)
+- Additional arguments are passed through to the external profile
+
+## Creating Custom Profiles
+
+### Option 1: Add to fi/profiles/time/
+
+Create a new Python file in `fi/profiles/time/` following the standard interface:
+```python
+# fi/profiles/time/my_profile.py
+
+PROFILE_KIND = "time"
+PROFILE_NAME = "my_profile"
+
+def describe():
+    return "My custom time profile"
+
+def default_args():
+    return {
+        "my_param": 1.0
+    }
+
+def make_profile(args, *, global_seed, settings):
+    from fi.profiles.time.base import TimeProfileBase
+    
+    class MyProfile(TimeProfileBase):
+        def run(self, controller):
+            # Your injection scheduling logic here
+            while (target := controller.next_target()) is not None:
+                controller.inject_target(target)
+                # Custom timing logic
+    
+    return MyProfile(PROFILE_NAME, args, global_seed)
+```
+
+### Option 2: Use External Profile with `input`
+
+Create a Python file anywhere in your file system:
+```python
+# /home/user/my_custom_time.py
+
+PROFILE_KIND = "time"
+PROFILE_NAME = "my_custom"
+
+def describe():
+    return "My custom time profile"
+
+def default_args():
+    return {
+        "delay_base": 1.0,
+        "randomize": True
+    }
+
+def make_profile(args, *, global_seed, settings):
+    from fi.profiles.time.base import TimeProfileBase
+    import random
+    
+    class MyCustomProfile(TimeProfileBase):
+        def __init__(self, name, args, seed):
+            super().__init__(name, args, seed)
+            self.delay_base = float(args.get("delay_base", 1.0))
+            self.randomize = args.get("randomize", "true").lower() == "true"
+            
+            if seed is not None:
+                random.seed(seed)
+        
+        def run(self, controller):
+            while (target := controller.next_target()) is not None:
+                # Inject target
+                controller.inject_target(target)
+                
+                # Custom delay logic
+                if self.randomize:
+                    delay = random.uniform(0, self.delay_base * 2)
+                else:
+                    delay = self.delay_base
+                
+                controller.sleep(delay)
+                
+                # Check for early termination
+                if controller.should_stop():
+                    break
+    
+    return MyCustomProfile("my_custom", args, global_seed)
+```
+
+**Usage:**
+```bash
+python3 -m fi.fault_injection \
+    --time input \
+    --time-args "module_path=/home/user/my_custom_time.py,delay_base=0.5,randomize=false"
+```
+
+**Interface Requirements:**
+
+External profiles must define:
+- `PROFILE_KIND = "time"` (constant)
+- `PROFILE_NAME` (string constant)
+- `describe()` - return description string
+- `default_args()` - return dict of default arguments
+- `make_profile(args, *, global_seed, settings)` - return profile object
+
+The profile object returned by `make_profile()` must have:
+- `run(controller)` method that executes the injection campaign
+
+**Validation:**
+
+The `input` profile validates external modules to ensure they implement the required interface. Clear error messages are provided if validation fails.
+
+## Profile Development Tips
+
+1. **Inherit from TimeProfileBase**: Provides common functionality and name tracking
+2. **Use controller.next_target()**: Iterate through the TargetPool
+3. **Use controller.inject_target()**: Perform injections via the controller
+4. **Use controller.sleep()**: Use centralized sleep for consistent timing
+5. **Check controller.should_stop()**: Support early termination (Ctrl+C, benchmark sync)
+6. **Handle exhausted pools**: next_target() returns None when pool is empty
+7. **Respect reproducibility**: Use global_seed for random number generation
+
+## Controller API
+
+Time profiles interact with the injection system via the `InjectionController`:
+```python
+# Get next target from pool
+target = controller.next_target()  # Returns TargetSpec or None
+
+# Inject target
+success = controller.inject_target(target)  # Returns bool
+
+# Sleep between injections
+controller.sleep(1.5)  # Seconds as float
+
+# Check for early termination
+if controller.should_stop():
+    break
+
+# Get campaign statistics
+stats = controller.get_stats()
+# Returns: {"total": int, "successes": int, "failures": int}
+```
+
+## Argument Parsing
+
+Time profile arguments are passed as a comma-separated string via `--time-args`:
+```bash
+--time-args "key1=value1,key2=value2,key3=value3"
+```
+
+The loader parses this into a dictionary:
+```python
+{
+    "key1": "value1",
+    "key2": "value2", 
+    "key3": "value3"
+}
+```
+
+All values are strings initially. Profiles should convert to appropriate types:
+```python
+delay = float(args.get("delay", 0.0))
+count = int(args.get("count", 100))
+enabled = args.get("enabled", "true").lower() == "true"
+```
+
+## Common Patterns
+
+### Sequential with Delay
+```python
+def run(self, controller):
+    while (target := controller.next_target()) is not None:
+        controller.inject_target(target)
+        controller.sleep(self.delay)
+```
+
+### Random Order
+```python
+def run(self, controller):
+    targets = []
+    while (target := controller.next_target()) is not None:
+        targets.append(target)
+    
+    random.shuffle(targets)
+    
+    for target in targets:
+        controller.inject_target(target)
+```
+
+### Conditional Execution
+```python
+def run(self, controller):
+    while (target := controller.next_target()) is not None:
+        # Only inject REG targets
+        if target.kind == TargetKind.REG:
+            controller.inject_target(target)
+```
+
+### Early Termination
+```python
+def run(self, controller):
+    count = 0
+    max_count = 100
+    
+    while (target := controller.next_target()) is not None:
+        controller.inject_target(target)
+        count += 1
+        
+        if count >= max_count or controller.should_stop():
+            break
+```
+
+## See Also
+
+- Area Profiles: Control which targets to inject
+- InjectionController: API for executing injections
+- Benchmark Synchronization: Coordinate with external processes

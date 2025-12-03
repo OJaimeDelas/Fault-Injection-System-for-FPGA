@@ -70,7 +70,8 @@ class AreaProfileBase:
         self,
         system_dict,
         board_name: str,
-        ebd_path: str
+        ebd_path: str,
+        cfg
     ) -> TargetPool:
         """
         Build complete TargetPool for injection.
@@ -87,6 +88,7 @@ class AreaProfileBase:
             system_dict: SystemDict with board dictionaries
             board_name: Resolved board name
             ebd_path: Path to EBD file for ACME
+            cfg: Config instance with campaign settings
         
         Returns:
             TargetPool ready for injection

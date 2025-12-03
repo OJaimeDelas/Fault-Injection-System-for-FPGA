@@ -115,18 +115,19 @@ class TargetListAreaProfile(AreaProfileBase):
 ```
     """
     
-    def build_pool(self, system_dict, board_name, ebd_path) -> TargetPool:
+    def build_pool(self, system_dict, board_name, ebd_path, cfg) -> TargetPool:
         """
         Load pool from YAML file.
         
         This method simply delegates to pool_loader.load_pool_from_file().
-        The system_dict, board_name, and ebd_path parameters are not used
+        The system_dict, board_name, ebd_path, and cfg parameters are not used
         since the pool is already fully specified in the file.
         
         Args:
             system_dict: SystemDict (unused, pool is pre-built)
             board_name: Board name (unused, pool is pre-built)
             ebd_path: EBD file path (unused, pool is pre-built)
+            cfg: Config instance (unused, pool is pre-built)
         
         Returns:
             TargetPool loaded from file
@@ -135,7 +136,8 @@ class TargetListAreaProfile(AreaProfileBase):
             ValueError: If pool file cannot be loaded
         """
         pool_file = self.args["pool_file"]
-        print(f"[target_list] Loading pool from {pool_file}")
+        from fi.core.logging.events import log_target_list_loading
+        log_target_list_loading(pool_file)
         
         # Load pool from file using pool_loader
         pool = load_pool_from_file(pool_file)
@@ -147,10 +149,12 @@ class TargetListAreaProfile(AreaProfileBase):
                 "Check that the file exists and has valid YAML format."
             )
         
-        print(f"[target_list] Loaded {len(pool)} targets from file")
+        from fi.core.logging.events import log_target_list_loaded
+        log_target_list_loaded(len(pool))
         
         # Get pool statistics for logging
         stats = pool.get_stats()
-        print(f"[target_list] Pool breakdown: {stats['by_kind']}")
+        from fi.core.logging.events import log_target_list_stats
+        log_target_list_stats(stats)
         
         return pool

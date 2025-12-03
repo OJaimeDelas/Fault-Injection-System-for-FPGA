@@ -6,12 +6,15 @@
 # periods, useful for stressing systems with clustered injections.
 #
 # Parameters (from args dict):
-#   idle_rate_hz   : Poisson rate during idle periods (float, >= 0)
-#   idle_duration_s: duration of each idle period in seconds (float > 0)
-#   burst_rate_hz  : Poisson rate during burst periods (float > 0)
-#   burst_duration_s: duration of each burst period in seconds (float > 0)
-#   cycles         : number of idle+burst cycles to execute (int, > 0)
-#   seed           : optional local seed; if omitted, global_seed is used
+#   burst_rate_hz    : Injection rate during burst periods (float > 0, required)
+#   idle_rate_hz     : Injection rate during idle periods (float >= 0, default 0)
+#   burst_duration_s : Duration of each burst period in seconds (float > 0, required)
+#   idle_duration_s  : Duration of each idle period in seconds (float > 0, required)
+#   bursts           : Number of bursts to execute (int > 0, optional)
+#   duration_s       : Overall time limit in seconds (float, optional)
+#   seed             : Optional local seed; if omitted, global_seed is used
+#
+# If both 'bursts' and 'duration_s' are set, whichever occurs first ends the profile.
 #=============================================================================
 
 from __future__ import annotations
@@ -37,11 +40,12 @@ def default_args() -> Dict[str, Any]:
     Default argument values for documentation and tooling.
     """
     return {
-        "idle_rate_hz": 0.1,
-        "idle_duration_s": 10.0,
-        "burst_rate_hz": 20.0,
+        "burst_rate_hz": 5.0,
+        "idle_rate_hz": 0.0,
         "burst_duration_s": 1.0,
-        "cycles": 10,
+        "idle_duration_s": 2.0,
+        "bursts": None,
+        "duration_s": None,
         "seed": None,
     }
 
@@ -50,29 +54,39 @@ class MicroburstTimeProfile:
     """
     Alternates between idle and burst periods, each modelled as a Poisson
     process with its own rate and duration.
+    
+    The profile ends when either:
+    - The requested number of bursts completes (if bursts is set)
+    - The duration limit is reached (if duration_s is set)
+    - The target pool is exhausted
+    Whichever comes first.
     """
 
     def __init__(
         self,
-        idle_rate_hz: float,
-        idle_duration_s: float,
         burst_rate_hz: float,
+        idle_rate_hz: float,
         burst_duration_s: float,
-        cycles: int,
+        idle_duration_s: float,
+        bursts: Optional[int],
+        duration_s: Optional[float],
         rng,
     ) -> None:
         if idle_duration_s <= 0.0 or burst_duration_s <= 0.0:
             raise ValueError("microburst profile requires positive durations.")
         if burst_rate_hz <= 0.0:
             raise ValueError("microburst profile requires burst_rate_hz > 0.")
-        if cycles <= 0:
-            raise ValueError("microburst profile requires cycles > 0.")
+        if bursts is not None and bursts <= 0:
+            raise ValueError("microburst profile requires bursts > 0 if specified.")
+        if duration_s is not None and duration_s <= 0.0:
+            raise ValueError("microburst profile requires duration_s > 0 if specified.")
 
-        self._idle_rate_hz = max(idle_rate_hz, 0.0)
-        self._idle_duration_s = idle_duration_s
         self._burst_rate_hz = burst_rate_hz
+        self._idle_rate_hz = max(idle_rate_hz, 0.0)
         self._burst_duration_s = burst_duration_s
-        self._cycles = cycles
+        self._idle_duration_s = idle_duration_s
+        self._bursts = bursts
+        self._duration_s = duration_s
         self._rng = rng
 
     def _run_interval(self, controller, rate_hz: float, duration_s: float) -> bool:
@@ -126,20 +140,62 @@ class MicroburstTimeProfile:
 
     def run(self, controller) -> None:
         """
-        Execute the configured number of idle+burst cycles.
+        Execute idle+burst cycles until one of the end conditions is met:
+        - Number of bursts reached (if bursts is set)
+        - Duration limit reached (if duration_s is set)
+        - Controller requests stop
+        - Target pool exhausted
         """
-        for _ in range(self._cycles):
-            if controller.should_stop():
+        campaign_start = base.now_monotonic()
+        burst_count = 0
+        
+        while True:
+            # Check if requested number of bursts completed
+            if self._bursts is not None and burst_count >= self._bursts:
+                controller.set_termination_reason("Requested number of bursts completed")
                 break
+            
+            # Check if duration limit reached
+            if self._duration_s is not None:
+                elapsed = base.now_monotonic() - campaign_start
+                if elapsed >= self._duration_s:
+                    controller.set_termination_reason("Duration limit reached")
+                    break
+            
+            if controller.should_stop():
+                controller.set_termination_reason("Stop requested")
+                break
+                
             # Idle interval
             if not self._run_interval(controller, self._idle_rate_hz, self._idle_duration_s):
+                # _run_interval returns False on stop or pool exhaustion
+                if controller.should_stop():
+                    controller.set_termination_reason("Stop requested")
+                else:
+                    controller.set_termination_reason("Target pool exhausted")
                 break
+                
+            # Check duration limit again after idle
+            if self._duration_s is not None:
+                elapsed = base.now_monotonic() - campaign_start
+                if elapsed >= self._duration_s:
+                    controller.set_termination_reason("Duration limit reached")
+                    break
+                    
             if controller.should_stop():
+                controller.set_termination_reason("Stop requested")
                 break
+                
             # Burst interval
             if not self._run_interval(controller, self._burst_rate_hz, self._burst_duration_s):
+                # _run_interval returns False on stop or pool exhaustion
+                if controller.should_stop():
+                    controller.set_termination_reason("Stop requested")
+                else:
+                    controller.set_termination_reason("Target pool exhausted")
                 break
-
+                
+            burst_count += 1
 
 def make_profile(
     args: Dict[str, str],
@@ -152,22 +208,24 @@ def make_profile(
     """
     _ = settings
 
-    idle_rate_hz = base.parse_float(args, "idle_rate_hz", default=0.1)
-    idle_duration_s = base.parse_float(args, "idle_duration_s", default=10.0)
-    burst_rate_hz = base.parse_float(args, "burst_rate_hz", default=20.0)
-    burst_duration_s = base.parse_float(args, "burst_duration_s", default=1.0)
-    cycles = base.parse_int(args, "cycles", default=10)
+    burst_rate_hz = base.parse_float(args, "burst_rate_hz", default=None)
+    idle_rate_hz = base.parse_float(args, "idle_rate_hz", default=0.0)
+    burst_duration_s = base.parse_float(args, "burst_duration_s", default=None)
+    idle_duration_s = base.parse_float(args, "idle_duration_s", default=None)
+    bursts = base.parse_int(args, "bursts", default=None)
+    duration_s = base.parse_float(args, "duration_s", default=None)
     seed_str = args.get("seed")
 
-    if idle_duration_s is None or burst_rate_hz is None or burst_duration_s is None or cycles is None:
-        raise ValueError("microburst profile requires idle_duration_s, burst_rate_hz, burst_duration_s and cycles.")
+    if burst_rate_hz is None or burst_duration_s is None or idle_duration_s is None:
+        raise ValueError("microburst profile requires burst_rate_hz, burst_duration_s and idle_duration_s.")
 
     rng = base.make_rng(global_seed, seed_str)
     return MicroburstTimeProfile(
-        idle_rate_hz=float(idle_rate_hz or 0.0),
-        idle_duration_s=float(idle_duration_s),
         burst_rate_hz=float(burst_rate_hz),
+        idle_rate_hz=float(idle_rate_hz or 0.0),
         burst_duration_s=float(burst_duration_s),
-        cycles=int(cycles),
+        idle_duration_s=float(idle_duration_s),
+        bursts=bursts,
+        duration_s=duration_s,
         rng=rng,
     )
