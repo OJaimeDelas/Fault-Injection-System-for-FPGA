@@ -19,7 +19,7 @@ class TargetKind(Enum):
     
     Attributes:
         CONFIG: Configuration bit injection (via SEM)
-        REG: Register injection (via GPIO/board interface)
+        REG: Register injection (via UART fi_coms protocol)
     """
     CONFIG = "CONFIG"  # Configuration bit (logic/LUTs/routing)
     REG = "REG"        # Register ID (flip-flops in the design)

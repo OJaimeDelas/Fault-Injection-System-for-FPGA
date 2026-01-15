@@ -228,8 +228,27 @@ ratio = float(args.get("ratio", 0.0))
 enabled = args.get("enabled", "true").lower() == "true"
 ```
 
-## See Also
+## Related Documentation
 
-- Time Profiles: Control when injections happen
-- Target Types: CONFIG vs REG target specifications
-- TargetPool: Container for ordered injection targets
+### Core Systems
+- [Main README](../../Readme.md) - System overview, area profile section
+- [Config System](../../core/config/Readme.md) - Seed management for reproducibility
+- [Campaign Controller](../../core/campaign/Readme.md) - Uses pools from area profiles
+
+### Profiles
+- [Profile Overview](../Readme.md) - Area and time profile system
+- [Time Profiles](../time/Readme) - Campaign scheduling (pairs with area)
+
+### Targets
+- [Target System](../../targets/Readme.md) - TargetSpec and TargetPool
+
+### Backends
+- [Backend Overview](../../backend/Readme.md) - Where targets are sent
+- [ACME Backend](../../backend/acme/Readme.md) - Address expansion for device/modules
+
+### See Also
+- `fi_settings.py` - TPOOL_DEFAULT_SIZE and area profile defaults
+- `base.py` - AreaProfileBase abstract class
+- `common/loader.py` - Dynamic profile loading
+- Target pool export in main README
+- System dictionary format (main README, lines 150-233)

@@ -1,241 +1,360 @@
-# FATORI-V FI Console - Logging Guide
+# FI Configuration System
+
+Centralized configuration management for the FI engine, combining default settings from `fi_settings.py` with CLI argument overrides.
 
 ## Overview
 
-The FI console uses a simple three-level logging system:
-- **minimal**: Only critical information (errors, campaign summary)
-- **normal**: Standard operation (lifecycle, system init, pool building)
-- **verbose**: Everything (including every injection and SEM command)
+The configuration system provides:
+- **Config dataclass**: Single source of truth for runtime settings
+- **CLI parser**: Comprehensive argument parsing with validation
+- **Seed manager**: Reproducible randomness for campaigns
+- **Path resolver**: Intelligent path resolution relative to fi/ directory
 
-## Quick Start
+## Architecture
+```
+fi_settings.py (defaults)
+     ↓
+cli_parser.py (parse CLI args)
+     ↓
+config.py (merge into Config dataclass)
+     ↓
+seed_manager.py (derive seeds if needed)
+     ↓
+Config object → Used by all engine modules
+```
 
-Set the log level via CLI:
+## Files
+
+- **config.py**: Config dataclass definition (dumb data container)
+- **cli_parser.py**: Argument parser with validation and help text
+- **seed_manager.py**: Seed generation and derivation for reproducibility
+- **path_resolver.py**: Path resolution utilities relative to fi/ directory
+
+---
+
+## Config Dataclass
+
+The `Config` dataclass in `config.py` is a simple data container with no logic. Every setting from `fi_settings.py` can be overridden via CLI.
+
+### Major Setting Categories
+
+**Serial/SEM:**
+- `dev`: Serial device (default: `/dev/ttyUSB0`)
+- `baud`: Baud rate (default: 1250000)
+- `sem_clock_hz`: SEM clock frequency
+- `sem_preflight_required`: Whether to require SEM preflight test
+
+**Profiles:**
+- `area_profile`: Area profile name (e.g., "device", "modules")
+- `area_args`: Opaque args string passed to area profile
+- `time_profile`: Time profile name (e.g., "uniform", "poisson")
+- `time_args`: Opaque args string passed to time profile
+
+**File Inputs:**
+- `system_dict_path`: Path to system dictionary YAML
+- `ebd_path`: Path to Essential Bits Data (.ebd) file  
+- `pool_file_path`: Optional pre-built target pool YAML
+
+**Logging:**
+- `log_root_override`: Override log directory location
+- `log_level`: Console verbosity ("minimal", "normal", "verbose")
+- Individual event toggles: `log_systemdict`, `log_acme`, etc.
+
+**Register Injection:**
+- `reg_inject_force_disabled`: Disable even if REG targets exist
+- `reg_inject_idle_id`: Idle register ID value
+- `reg_inject_reg_id_width`: Register ID bit width
+
+**Seeds (Reproducibility):**
+- `global_seed`: Master seed for entire campaign
+- `area_seed`: Explicit seed for area profile (overrides derivation)
+- `time_seed`: Explicit seed for time profile (overrides derivation)
+- `global_seed_was_generated`: Tracks if global_seed was auto-generated
+
+**Target Pool Export:**
+- `tpool_auto_save`: Automatically export generated pools
+- `tpool_output_dir`: Directory for pool YAML files
+- `tpool_output_name`: Custom name for exported pool
+
+**Debug:**
+- `debug`: Enable debug mode (stub hardware, test pool building)
+
+---
+
+## CLI Parser
+
+The `cli_parser.py` module creates a comprehensive argument parser using argparse.
+
+### Major Argument Groups
+
+**Core Options:**
 ```bash
-# Minimal mode - only errors and summary
-python3 fault_injection.py --log-level minimal --area device
-
-# Normal mode - default, good for most use cases
-python3 fault_injection.py --log-level normal --area device
-
-# Verbose mode - see everything happen in real-time
-python3 fault_injection.py --log-level verbose --area device
+-d/--dev DEV              Serial device
+-b/--baud BAUD            Baud rate
+--area PROFILE            Area profile name
+--area-args ARGS          Area profile arguments
+--time PROFILE            Time profile name  
+--time-args ARGS          Time profile arguments
 ```
 
-Or edit `fi_settings.py` for a permanent change:
-```python
-LOG_LEVEL = "verbose"  # Change default to verbose
-```
-
-## What Gets Logged at Each Level
-
-### MINIMAL - Production Mode
-
-**Console Output:**
-- Campaign startup banner
-- Campaign completion banner
-- Campaign summary statistics
-- Errors only
-
-**File Log:**
-- Same as console (minimal record)
-
-**Use When:**
-- Running production campaigns
-- You only care if it worked or failed
-- Clean console output is important
-
-### NORMAL - Default Mode
-
-**Console Output:**
-- Campaign lifecycle (start/end/summary)
-- System initialization (dict loading, board resolution, SEM preflight)
-- Pool building results
-- ACME expansion details
-- Errors
-
-**File Log:**
-- Everything from console, PLUS:
-- ACME cache hits (performance info)
-- Individual injections (one line per injection)
-- SEM commands and responses (detailed protocol)
-
-**Use When:**
-- Typical development and testing
-- You want to see progress but not be overwhelmed
-- Need detailed file logs for analysis later
-
-### VERBOSE - Debug Mode
-
-**Console Output:**
-- Everything enabled
-- Real-time injection activity
-- Every SEM command and response
-- ACME cache behavior
-- All system events
-
-**File Log:**
-- Complete record of everything
-
-**Use When:**
-- Debugging issues
-- Monitoring campaign in detail
-- Understanding SEM protocol behavior
-- Need to see exactly what's happening
-
-## Customizing Log Levels
-
-Want to change what appears at each level? Edit `fi/config/log_levels.py`:
-```python
-# Example: Add injection visibility to NORMAL level
-NORMAL = [
-    # ... existing entries ...
-    ('injection', True, True),  # Move from (False, True) to (True, True)
-]
-```
-
-Each entry is a tuple: `(event_name, to_console, to_file)`
-
-### Available Events
-
-| Event | Description |
-|-------|-------------|
-| `campaign_header` | Campaign startup banner |
-| `campaign_footer` | Campaign completion banner |
-| `campaign_summary` | Final statistics |
-| `systemdict_load` | System dictionary loaded |
-| `board_resolution` | Board name resolved |
-| `sem_preflight` | SEM connection test |
-| `pool_built` | Target pool built |
-| `acme_expansion` | ACME region expanded |
-| `acme_cache_hit` | ACME cache hit |
-| `injection` | Individual injection |
-| `sem_command` | SEM command sent |
-| `sem_response` | SEM response received |
-| `error` | Error occurred |
-
-### Example Customizations
-
-#### Show Injections in NORMAL Mode
-```python
-# In fi/config/log_levels.py, NORMAL section:
-('injection', True, True),  # Changed from (False, True)
-```
-
-#### Hide System Init in VERBOSE Mode
-```python
-# In fi/config/log_levels.py, VERBOSE section:
-('systemdict_load', False, True),  # Changed from (True, True)
-('board_resolution', False, True),  # Console off, file on
-```
-
-#### Create Custom Level
-
-You can add your own level by editing `log_levels.py`:
-```python
-# Add after VERBOSE definition:
-DEBUG_SEM = [
-    ('campaign_header', True, True),
-    ('campaign_footer', True, True),
-    ('sem_command', True, True),    # Only SEM activity
-    ('sem_response', True, True),
-    ('error', True, True),
-]
-
-# Update get_level_config():
-def get_level_config(level: str):
-    if level == "minimal":
-        return MINIMAL
-    elif level == "verbose":
-        return VERBOSE
-    elif level == "debug_sem":  # NEW
-        return DEBUG_SEM
-    else:
-        return NORMAL
-```
-
-Then use: `--log-level debug_sem`
-
-## File vs Console
-
-**Key Principle:** File logs are for analysis, console is for monitoring.
-
-At NORMAL level:
-- **High-frequency events** (injections, SEM commands) go to file only
-- **Low-frequency events** (system init, pool building) go to both
-
-This keeps console readable while maintaining complete file records.
-
-## Common Scenarios
-
-### Scenario 1: Debugging SEM Communication
-
-Use verbose mode to see every command and response:
+**System Inputs:**
 ```bash
-python3 fault_injection.py --log-level verbose --area device
+--system-dict PATH        System dictionary YAML
+--ebd PATH                Essential bits data file
+--board NAME              Board name (e.g., "xcku040")
 ```
 
-Watch the console for SEM protocol details.
-
-### Scenario 2: Production Runs
-
-Use minimal mode for clean output:
+**Logging:**
 ```bash
-python3 fault_injection.py --log-level minimal --area modules
+--log-root DIR            Log directory base
+--log-level LEVEL         Console verbosity (minimal/normal/verbose)
+--log-systemdict          Enable/disable systemdict logging
+--log-acme-expansion      Enable/disable ACME logging
+--log-injections          Enable/disable injection logging
+# ... (individual event toggles)
 ```
 
-Check log file afterward for complete details.
-
-### Scenario 3: Development/Testing
-
-Use normal mode (default) for balanced output:
+**Register Injection:**
 ```bash
-python3 fault_injection.py --area device
+--reg-inject-disabled           Disable register injection
+--reg-inject-idle-id ID         Idle register ID
+--reg-inject-reg-id-width BITS  Register ID bit width
 ```
 
-Console shows progress, file has complete record.
+**Seeds:**
+```bash
+--global-seed SEED        Master seed for campaign
+--area-seed SEED          Explicit area profile seed
+--time-seed SEED          Explicit time profile seed
+```
 
-### Scenario 4: Performance Analysis
+**Target Pool:**
+```bash
+--tpool-name NAME               Custom pool export name
+--tpool-output PATH             Explicit pool export path
+--tpool-output-dir DIR          Pool export directory
+--no-tpool-save                 Disable automatic pool export
+--tpool-size-break-repeat-only  Control pool size behavior
+--tpool-absolute-cap N          Hard cap on pool size
+```
 
-Edit `log_levels.py` to add ACME cache hits to console in NORMAL:
+**Debug:**
+```bash
+--debug                   Enable debug mode (no hardware)
+```
+
+### CLI Override Priority
+
+Settings are resolved in this order (highest priority first):
+1. CLI arguments (e.g., `--baud 115200`)
+2. Environment variables (if implemented)
+3. `fi_settings.py` defaults
+
+---
+
+## Seed Management System
+
+The `seed_manager.py` module provides reproducible randomness for campaigns.
+
+### Seed Hierarchy
+```
+global_seed (master)
+  ├─→ area_seed (derived or explicit)
+  └─→ time_seed (derived or explicit)
+```
+
+### Automatic Seed Generation
+
+If no `--global-seed` is provided:
 ```python
-('acme_cache_hit', True, True),  # Added to NORMAL
+global_seed = generate_global_seed()
+# Combines time + random for uniqueness
 ```
 
-## Tips
+The generated seed is displayed in campaign output and can be used to reproduce the campaign:
+```bash
+# First run (seed auto-generated)
+python -m fi.fault_injection --area device
+# Output: "Using auto-generated global_seed: 1234567890"
 
-1. **File logs always complete** - even at minimal level, file gets more than console
-2. **Start with normal** - good default for most use cases
-3. **Use verbose sparingly** - helpful for debugging but very noisy
-4. **Customize via log_levels.py** - don't edit every log function, just move events between levels
-5. **Console for monitoring, file for analysis** - different purposes
+# Reproduce exact campaign
+python -m fi.fault_injection --area device --global-seed 1234567890
+```
 
-## Troubleshooting
+### Seed Derivation
 
-### Too Much Console Output
-
-Try minimal mode: `--log-level minimal`
-
-Or edit `log_levels.py` to move noisy events from console:
+If `--global-seed` is provided but not `--area-seed` or `--time-seed`:
 ```python
-('injection', False, True),  # File only
+area_seed = hash(("area", global_seed)) % (2**32)
+time_seed = hash(("time", global_seed)) % (2**32)
 ```
 
-### Not Enough Detail
+This ensures:
+- Area and time profiles get different seeds
+- Derivation is deterministic (same global_seed → same derived seeds)
+- Each profile controls its own random behavior
 
-Try verbose mode: `--log-level verbose`
+### Explicit Seed Override
 
-Or edit `log_levels.py` to add specific events to console.
+You can override derived seeds:
+```bash
+# Use global seed for area, but custom seed for time
+python -m fi.fault_injection \
+    --global-seed 12345 \
+    --time-seed 99999
+```
 
-### Want Different Behavior
+### Reproducibility Guarantees
 
-Copy and customize `fi/config/log_levels.py` - it's designed to be edited!
+**Reproducible** (same results every time):
+- Same `--global-seed` → Same target selection and injection timing
+- Same profile args + seed → Same behavior
 
-## Summary
+**Not guaranteed reproducible**:
+- No seed specified (uses auto-generated seed)
+- External factors (benchmark synchronization, file system changes)
 
-- **Three levels**: minimal, normal, verbose
-- **One file to edit**: `fi/config/log_levels.py`
-- **Simple tuples**: `(event, to_console, to_file)`
-- **File logs always complete**, console can be filtered
-- **Default is sane**, customize if needed
+---
 
-Simple, clean, and easy to customize!
+## Path Resolution
+
+The `path_resolver.py` module handles relative path resolution.
+
+### Path Resolution Rules
+
+Relative paths in CLI arguments are resolved relative to:
+1. Current working directory (CWD) for most paths
+2. `fi/` directory for internal defaults
+
+Example:
+```bash
+# Relative to CWD
+--system-dict my_configs/system.yaml
+# → Resolves to: $(pwd)/my_configs/system.yaml
+
+# Absolute path (unchanged)
+--system-dict /home/user/configs/system.yaml
+# → Resolves to: /home/user/configs/system.yaml
+```
+
+### Default Path Behavior
+
+Paths from `fi_settings.py` are resolved relative to the `fi/` directory:
+```python
+# In fi_settings.py
+SYSTEM_DICT_PATH = "core/config/system_dict.yaml"
+# → Resolves to: /path/to/fi/core/config/system_dict.yaml
+```
+
+This allows the FI engine to find its default files regardless of where it's invoked from.
+
+---
+
+## Usage Examples
+
+### Minimal (All Defaults)
+```bash
+python -m fi.fault_injection
+```
+Uses all settings from `fi_settings.py`.
+
+### Override Key Settings
+```bash
+python -m fi.fault_injection \
+    --dev /dev/ttyUSB1 \
+    --baud 115200 \
+    --area modules \
+    --area-args "pool_size=500,ratio=0.3"
+```
+
+### Reproducible Campaign
+```bash
+# Run with specific seed
+python -m fi.fault_injection \
+    --global-seed 42 \
+    --area device \
+    --time uniform \
+    --time-args "rate_hz=10"
+```
+
+### Debug Mode (No Hardware)
+```bash
+python -m fi.fault_injection \
+    --debug \
+    --area modules \
+    --area-args "pool_size=100"
+```
+Tests pool building and campaign flow without requiring hardware.
+
+### Custom Paths
+```bash
+python -m fi.fault_injection \
+    --system-dict /path/to/custom_dict.yaml \
+    --ebd /path/to/design.ebd \
+    --log-root /path/to/results
+```
+
+---
+
+## Integration with Other Modules
+
+### Engine Modules
+All engine modules receive the `Config` object:
+```python
+def run_campaign(cfg: Config):
+    # Access any setting
+    print(f"Device: {cfg.dev} @ {cfg.baud} baud")
+    print(f"Area: {cfg.area_profile}")
+    print(f"Global seed: {cfg.global_seed}")
+```
+
+### Profile Loaders
+Profiles receive `global_seed` automatically:
+```python
+def make_profile(args, *, global_seed, settings):
+    # Area/time profiles get derived seeds if not explicitly provided
+    return MyProfile(args, global_seed)
+```
+
+### Logging System
+Log level controls event visibility:
+```python
+# In logging code
+if cfg.log_level == "verbose":
+    log_injection_details()
+```
+
+---
+
+## Best Practices
+
+1. **Use global_seed for reproducibility**: Always specify `--global-seed` for campaigns you want to reproduce
+2. **Don't edit fi_settings.py for campaigns**: Use CLI args instead to avoid git conflicts
+3. **Save seeds from runs**: Campaign output includes the seed used
+4. **Use debug mode for testing**: `--debug` validates pool building without hardware
+5. **Override individual settings**: No need to specify all settings, just the ones you want to change
+
+---
+
+## Related Documentation
+
+### Core Systems
+- [Main README](../../Readme.md) - System overview, CLI reference section
+- [Logging System](../logging/Readme.md) - Log configuration settings
+- [Campaign Controller](../campaign/Readme.md) - Uses Config for campaign execution
+
+### Backends
+- [Backend Overview](../../backend/Readme.md) - Backend configuration
+- [SEM Backend](../../backend/sem/Readme.md) - SEM configuration settings
+- [Register Injection](../../backend/reg_inject/Readme.md) - Register injection settings
+
+### Profiles
+- [Profile System](../../profiles/Readme.md) - Profile configuration
+- [Area Profiles](../../profiles/area/Readme) - Area profile arguments
+- [Time Profiles](../../profiles/time/Readme) - Time profile arguments
+
+### See Also
+- `fi_settings.py` - Default configuration values (source of truth)
+- `fault_injection.py` - Config instantiation and usage
+- CLI help: `python -m fi.fault_injection --help`
+- Seed management examples in main README

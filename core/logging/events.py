@@ -605,24 +605,24 @@ def log_sem_command(command: str, response: List[str]):
 
 
 # =============================================================================
-# GPIO Events
+# Register Injection Events
 # =============================================================================
 
-def log_gpio_init(pin: int, idle_id: int, width: int, max_reg_id: int):
+def log_reg_inject_init(interface: str, idle_id: int, width: int, max_reg_id: int):
     """
-    Log GPIO interface initialization.
+    Log register injection interface initialization.
     
     Args:
-        pin: GPIO pin number
+        interface: Interface type (e.g., "UART")
         idle_id: Idle register ID
         width: Register ID bit width
         max_reg_id: Maximum register ID supported
     """
-    to_console, to_file = _should_log_event('gpio_init')
+    to_console, to_file = _should_log_event('reg_inject_init')
     if not to_console and not to_file:
         return
     
-    msg = message_formats.format_gpio_init(pin, idle_id, width, max_reg_id)
+    msg = message_formats.format_reg_inject_init(interface, idle_id, width, max_reg_id)
     
     if to_file:
         _write_to_file(msg)
@@ -630,21 +630,19 @@ def log_gpio_init(pin: int, idle_id: int, width: int, max_reg_id: int):
         _write_to_console(msg)
 
 
-def log_gpio_inject(reg_id: int, bit_index: int = None):
+def log_reg_inject_inject(reg_id: int, bit_index: int = None):
     """
-    Log GPIO injection command.
-    
-    High-frequency event (one per injection).
+    Log register injection command.
     
     Args:
-        reg_id: Register ID being injected
+        reg_id: Register ID
         bit_index: Optional bit index
     """
-    to_console, to_file = _should_log_event('gpio_inject')
+    to_console, to_file = _should_log_event('reg_inject_inject')
     if not to_console and not to_file:
         return
     
-    msg = message_formats.format_gpio_inject(reg_id, bit_index)
+    msg = message_formats.format_reg_inject_inject(reg_id, bit_index)
     
     if to_file:
         _write_to_file(msg)
@@ -652,20 +650,20 @@ def log_gpio_inject(reg_id: int, bit_index: int = None):
         _write_to_console(msg)
 
 
-def log_gpio_error(reg_id: int, width: int, max_reg_id: int):
+def log_reg_inject_error(reg_id: int, width: int, max_reg_id: int):
     """
-    Log GPIO validation error.
+    Log register injection validation error.
     
     Args:
         reg_id: Invalid register ID
         width: Register ID bit width
         max_reg_id: Maximum register ID supported
     """
-    to_console, to_file = _should_log_event('gpio_error')
+    to_console, to_file = _should_log_event('reg_inject_error')
     if not to_console and not to_file:
         return
     
-    msg = message_formats.format_gpio_error(reg_id, width, max_reg_id)
+    msg = message_formats.format_reg_inject_error(reg_id, width, max_reg_id)
     
     if to_file:
         _write_to_file(msg)
@@ -673,15 +671,15 @@ def log_gpio_error(reg_id: int, width: int, max_reg_id: int):
         _write_to_console(msg)
 
 
-def log_gpio_placeholder():
+def log_reg_inject_placeholder():
     """
-    Log GPIO placeholder message for unimplemented transmission.
+    Log register injection placeholder message for missing transport.
     """
-    to_console, to_file = _should_log_event('gpio_placeholder')
+    to_console, to_file = _should_log_event('reg_inject_placeholder')
     if not to_console and not to_file:
         return
     
-    msg = message_formats.format_gpio_placeholder()
+    msg = message_formats.format_reg_inject_placeholder()
     
     if to_file:
         _write_to_file(msg)

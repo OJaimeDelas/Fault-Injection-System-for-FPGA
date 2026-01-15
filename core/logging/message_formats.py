@@ -377,47 +377,48 @@ def format_error(msg: str, exc: Exception = None) -> str:
 
 
 # =============================================================================
-# GPIO Messages
+# Register Injections Messages
 # =============================================================================
 
-def format_gpio_init(pin: int, idle_id: int, width: int, max_reg_id: int) -> str:
+def format_reg_inject_init(interface: str, idle_id: int, width: int, max_reg_id: int) -> str:
     """
-    Format GPIO interface initialization message.
+    Format register injection interface initialization message.
     
     Args:
-        pin: GPIO pin number
+        interface: Interface type (e.g., "UART")
         idle_id: Idle register ID
         width: Register ID bit width
         max_reg_id: Maximum register ID supported
     
     Returns:
-        Formatted GPIO init message
+        Formatted initialization message
     """
     return (
-        f"[GPIO] Initialized: pin={pin}, idle_id={idle_id}, "
+        f"[REG_INJECT] Initialized via {interface}: idle_id={idle_id}, "
         f"width={width} bits (supports reg_id 1-{max_reg_id})"
     )
 
 
-def format_gpio_inject(reg_id: int, bit_index: int = None) -> str:
+def format_reg_inject_inject(reg_id: int, bit_index: int = None) -> str:
     """
-    Format GPIO injection command message.
+    Format register injection command message.
     
     Args:
-        reg_id: Register ID being injected
+        reg_id: Register ID
         bit_index: Optional bit index
     
     Returns:
-        Formatted GPIO inject message
+        Formatted injection message
     """
     if bit_index is None:
-        return f"[GPIO] Injecting reg_id={reg_id}"
-    return f"[GPIO] Injecting reg_id={reg_id}, bit={bit_index}"
+        return f"[REG_INJECT] Injecting reg_id={reg_id}"
+    else:
+        return f"[REG_INJECT] Injecting reg_id={reg_id}, bit={bit_index}"
 
 
-def format_gpio_error(reg_id: int, width: int, max_reg_id: int) -> str:
+def format_reg_inject_error(reg_id: int, width: int, max_reg_id: int) -> str:
     """
-    Format GPIO validation error message.
+    Format register injection validation error message.
     
     Args:
         reg_id: Invalid register ID
@@ -425,22 +426,22 @@ def format_gpio_error(reg_id: int, width: int, max_reg_id: int) -> str:
         max_reg_id: Maximum register ID supported
     
     Returns:
-        Formatted GPIO error message
+        Formatted error message
     """
     return (
-        f"[GPIO] ERROR: reg_id={reg_id} out of range "
+        f"[REG_INJECT] ERROR: reg_id={reg_id} out of range "
         f"(1-{max_reg_id} for {width}-bit width)"
     )
 
 
-def format_gpio_placeholder() -> str:
+def format_reg_inject_placeholder() -> str:
     """
-    Format GPIO placeholder message for unimplemented transmission.
+    Format register injection placeholder message for missing transport.
     
     Returns:
-        Formatted GPIO placeholder message
+        Formatted placeholder message
     """
-    return "[GPIO] Serial transmission not implemented - returning success (placeholder)"
+    return "[REG_INJECT] No transport available - returning success (placeholder)"
 
 
 # =============================================================================

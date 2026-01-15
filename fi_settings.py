@@ -22,7 +22,7 @@ RATIO_STRICT_MODE = False
 DEFAULT_DEVICE = "/dev/ttyUSB0"
 
 # Default baudrate of the serial link to SEM.
-DEFAULT_BAUDRATE = 1250000
+DEFAULT_BAUDRATE = 115200
 
 # -----------------------------------------------------------------------------
 # Serial / SEM control
@@ -31,7 +31,7 @@ DEFAULT_BAUDRATE = 1250000
 
 # Clock frequency of the SEM IP core on the FPGA, in hertz.
 # This is provided so that timing-related calculations can be made when needed.
-SEM_CLOCK_HZ = 100_000_000
+SEM_CLOCK_HZ = 60_000_000
 
 # Require successful SEM preflight test before starting campaign
 SEM_PREFLIGHT_REQUIRED = False
@@ -139,7 +139,7 @@ TPOOL_ADDITIONAL_PATH = None
 # When False: tpool_size always limits pool size
 # 
 # Use False when you want strict pool size control regardless of repeat mode.
-TPOOL_SIZE_BREAK_REPEAT_ONLY = True
+TPOOL_SIZE_BREAK_REPEAT_ONLY = False
 
 
 # Disregarding everything else, the absolute max injections cap
@@ -151,22 +151,20 @@ TPOOL_DEFAULT_SIZE = 200
 
 
 # =============================================================================
-# GPIO Configuration for Register Injection
+# Register Injection Configuration (UART-based via fi_coms)
 # =============================================================================
 
-# GPIO is AUTO-ENABLED when REG targets exist in the target pool.
-# This setting forces GPIO to remain disabled even when REG targets are detected.
-# Use this for testing campaigns without GPIO hardware.
-INJECTION_GPIO_FORCE_DISABLED = False
+# Register injection is AUTO-ENABLED when REG targets exist in the target pool.
+# This setting forces register injection to remain disabled even when REG targets
+# are detected. Use this for testing campaigns without hardware connection.
+INJECTION_REG_FORCE_DISABLED = False
 
-# Single GPIO pin for serial register ID transmission
-INJECTION_GPIO_PIN = 17
-
-# Idle value sent when no injection is active (register IDs start at 1)
-INJECTION_GPIO_IDLE_ID = 0
+# Idle register ID value (sent when no injection is active, register IDs start at 1)
+INJECTION_REG_IDLE_ID = 0
 
 # Bit width for register ID transmission (8 bits supports IDs 1-255)
-INJECTION_GPIO_REG_ID_WIDTH = 8
+# This matches the fi_coms hardware module configuration
+INJECTION_REG_ID_WIDTH = 8
 
 # =============================================================================
 # Console Settings (for interactive SEM console)

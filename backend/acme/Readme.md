@@ -442,3 +442,26 @@ Both approaches work; the first is slightly more efficient if making many calls.
 - **ACME Paper**: IEEE Access 2019, "ACME: A Tool to Improve Configuration Memory Fault Injection in SRAM-Based FPGAs"
 - **Vivado UG470**: 7 Series FPGAs Configuration User Guide
 - **Vivado UG570**: UltraScale Architecture Configuration User Guide
+
+---
+
+## Related Documentation
+
+### Backend Systems
+- [Backend Overview](../Readme.md) - All backend subsystems
+- [SEM Backend](../sem/Readme.md) - Uses ACME for address expansion
+- [Register Injection](../reg_inject/Readme.md) - Register injection backend
+
+### Core Systems
+- [Main README](../../Readme.md) - System overview
+- [Config System](../../core/config/Readme.md) - Configuration management
+- [Campaign Controller](../../core/campaign/Readme.md) - Campaign execution
+
+### Profiles
+- [Area Profiles](../../profiles/area/Readme) - Call ACME for address expansion
+- Device and modules profiles use ACME heavily
+
+### See Also
+- `fi_settings.py` - ACME cache configuration
+- `core/config/system_dict.yaml` - Device geometry definitions
+- EBD files - FPGA device descriptions for ACME

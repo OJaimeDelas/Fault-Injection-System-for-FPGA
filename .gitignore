@@ -5,7 +5,7 @@
 # Build artifacts
 build/
 gen/
-.ebd
+*.ebd
 
 # Testing Scripts
 test.py

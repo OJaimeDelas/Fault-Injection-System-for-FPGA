@@ -36,3 +36,28 @@ and must export a small, uniform "plugin" API:
 The engine loads profiles dynamically by module name and calls
 make_profile(...) with a dictionary of parsed arguments and the
 global seed taken from the Config object.
+
+---
+
+## Related Documentation
+
+### Core Systems
+- [Main README](../Readme.md) - System overview, profile sections
+- [Config System](../core/config/Readme.md) - Profile configuration and seeds
+- [Campaign Controller](../core/campaign/Readme.md) - Profile execution
+
+### Profiles
+- [Area Profiles](area/Readme) - WHERE to inject (target selection)
+- [Time Profiles](time/Readme) - WHEN to inject (campaign scheduling)
+
+### Targets
+- [Target System](../targets/Readme.md) - TargetPool built by area profiles
+
+### Backends
+- [Backend Overview](../backend/Readme.md) - Used by profiles indirectly
+- [ACME Backend](../backend/acme/Readme.md) - Address expansion for area profiles
+
+### See Also
+- `fi_settings.py` - Profile default arguments
+- Profile loading system (common/loader.py in area/ and time/)
+- Creating custom profiles (see area/Readme and time/Readme)

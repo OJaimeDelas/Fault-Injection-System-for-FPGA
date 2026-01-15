@@ -95,3 +95,17 @@ print_section("Injection Progress")
 print(f"  {current}/{total} injections complete ({percent:.1f}%)")
 print(f"  Success rate: {success_rate:.1f}%")
 ```
+
+---
+
+## Related Documentation
+
+### Core Systems
+- [Main README](../Readme.md) - System overview
+- [SEM Backend](../backend/sem/Readme.md) - SEM protocol used by console
+- [Config System](../core/config/Readme.md) - Console configuration
+
+### See Also
+- `fi_settings.py` - Console default settings
+- `fault_injection.py` - Campaign mode (alternative to console)
+- SEM IP Core documentation - Hardware interface reference

@@ -19,7 +19,7 @@ class TargetPool:
     
     - Area profiles: Build pools by adding targets in injection order
     - Time profiles: Consume pools via pop_next()
-    - InjectionController: Routes targets to SEM/GPIO
+    - InjectionController: Routes targets to SEM/REG_INJECTION
     
     Responsibilities:
         - Store targets sequentially
@@ -188,15 +188,11 @@ class TargetPool:
         """
         Check if pool contains any REG (register) targets.
         
-        Used to determine if GPIO backend initialization is needed.
+        Used to determine if REG Injection backend initialization is needed.
         Returns True if at least one REG target exists.
         
         Returns:
             True if pool contains REG targets, False otherwise
-        
-        Example:
-            >>> if pool.has_reg_targets():
-            ...     board_if = GPIOBoardInterface(cfg)
         """
         for target in self._targets:
             if target.kind == TargetKind.REG:
@@ -208,30 +204,30 @@ class TargetPool:
         Analyze pool to determine which backends are needed.
         
         This method scans the entire pool and returns a dictionary indicating
-        which backends (SEM for CONFIG, GPIO for REG) need to be initialized
+        which backends (SEM for CONFIG, REG_INJECT for REG) need to be initialized
         based on the target types present in the pool.
         
         This enables conditional backend initialization:
         - Only initialize SEM if CONFIG targets exist
-        - Only initialize GPIO if REG targets exist
+        - Only initialize register injection if REG targets exist
         - Skip unused backends entirely
         
         Returns:
-            Dict with keys "sem" and "gpio", values are bool
+            Dict with keys "sem" and "reg_inject", values are bool
         
         Example:
             >>> reqs = pool.get_backend_requirements()
             >>> reqs
-            {'sem': True, 'gpio': False}  # CONFIG targets only
+            {'sem': True, 'reg_inject': False}  # CONFIG targets only
             >>> 
             >>> if reqs['sem']:
             ...     sem_proto = open_sem(cfg, log_ctx)
-            >>> if reqs['gpio']:
-            ...     board_if = GPIOBoardInterface(cfg)
+            >>> if reqs['reg_inject']:
+            ...     board_if = create_board_interface(cfg, transport)
         """
         return {
             "sem": self.has_config_targets(),
-            "gpio": self.has_reg_targets()
+            "reg_inject": self.has_reg_targets()
         }
     
     def get_stats(self) -> Dict:

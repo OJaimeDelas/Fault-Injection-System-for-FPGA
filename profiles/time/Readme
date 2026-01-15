@@ -190,7 +190,15 @@ The `input` profile validates external modules to ensure they implement the requ
 2. **Use controller.next_target()**: Iterate through the TargetPool
 3. **Use controller.inject_target()**: Perform injections via the controller
 4. **Use controller.sleep()**: Use centralized sleep for consistent timing
-5. **Check controller.should_stop()**: Support early termination (Ctrl+C, benchmark sync)
+5. **Check controller.should_stop()**: Support early termination
+
+The controller signals when to stop via `should_stop()`. This happens when:
+- User presses Ctrl+C (signal handler)
+- Benchmark removes signal file (if `--wait-for-file` used)
+- Profile requests stop via `controller.request_stop()`
+
+Always check `should_stop()` in your injection loop to enable graceful termination.
+
 6. **Handle exhausted pools**: next_target() returns None when pool is empty
 7. **Respect reproducibility**: Use global_seed for random number generation
 
@@ -285,8 +293,26 @@ def run(self, controller):
             break
 ```
 
-## See Also
+## Related Documentation
 
-- Area Profiles: Control which targets to inject
-- InjectionController: API for executing injections
-- Benchmark Synchronization: Coordinate with external processes
+### Core Systems
+- [Main README](../../Readme.md) - System overview, time profile section
+- [Config System](../../core/config/Readme.md) - Seed management for reproducibility
+- [Campaign Controller](../../core/campaign/Readme.md) - Controller API for time profiles
+
+### Profiles
+- [Profile Overview](../Readme.md) - Area and time profile system
+- [Area Profiles](../area/Readme) - Target selection (pairs with time)
+
+### Targets
+- [Target System](../../targets/Readme.md) - TargetSpec consumed by time profiles
+
+### Backends
+- [Backend Overview](../../backend/Readme.md) - Backend systems (time profiles interact via controller)
+
+### See Also
+- `fi_settings.py` - Time profile default arguments
+- `base.py` - TimeProfileBase abstract class
+- `common/loader.py` - Dynamic profile loading
+- Controller API documentation in core/campaign/Readme.md
+- Creating custom time profiles (this file, examples section)

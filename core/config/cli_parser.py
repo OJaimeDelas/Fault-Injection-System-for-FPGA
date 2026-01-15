@@ -197,47 +197,40 @@ def _add_logging_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_gpio_args(parser: argparse.ArgumentParser) -> None:
+def _add_reg_inject_args(parser: argparse.ArgumentParser) -> None:
     """
-    Add GPIO configuration arguments for register injection.
+    Add register injection arguments.
     
-    GPIO is AUTO-ENABLED when REG targets exist in the pool.
-    Use --gpio-disabled to explicitly disable GPIO for testing without hardware.
+    Configuration for UART-based register fault injection via fi_coms protocol.
     """
-    gpio_group = parser.add_argument_group(
-        "GPIO Configuration",
-        "Options for register injection via GPIO serial transmission"
+    reg_group = parser.add_argument_group(
+        'Register Injection Configuration',
+        'UART-based register injection via fi_coms hardware module'
     )
     
-    gpio_group.add_argument(
-        "--gpio-disabled",
-        action="store_true",
+    reg_group.add_argument(
+        '--reg-inject-disabled',
+        action='store_true',
+        dest='reg_inject_disabled',
         help=(
-            "Force disable GPIO even if REG targets exist in pool. "
-            "GPIO is auto-enabled when REG targets are detected. "
-            "Use this flag for testing without hardware."
+            "Disable register injection even if REG targets exist "
+            "(REG injections will be simulated with NoOp). "
+            f"Default: {fi_settings.INJECTION_REG_FORCE_DISABLED}"
         )
     )
     
-    gpio_group.add_argument(
-        "--gpio-pin",
+    reg_group.add_argument(
+        '--reg-inject-idle-id',
         type=int,
-        default=None,
-        help=f"GPIO pin number for register ID transmission (default: {fi_settings.INJECTION_GPIO_PIN})"
+        metavar='ID',
+        help=f"Idle register ID value (0). Default: {fi_settings.INJECTION_REG_IDLE_ID}"
     )
     
-    gpio_group.add_argument(
-        "--gpio-idle-id",
+    reg_group.add_argument(
+        '--reg-inject-reg-id-width',
         type=int,
-        default=None,
-        help=f"Idle value when no injection active (default: {fi_settings.INJECTION_GPIO_IDLE_ID})"
-    )
-    
-    gpio_group.add_argument(
-        "--gpio-reg-id-width",
-        type=int,
-        default=None,
-        help=f"Bit width for register IDs (default: {fi_settings.INJECTION_GPIO_REG_ID_WIDTH})"
+        metavar='BITS',
+        help=f"Register ID bit width (8 = IDs 1-255). Default: {fi_settings.INJECTION_REG_ID_WIDTH}"
     )
 
 
@@ -662,7 +655,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     _add_board_args(parser)
     _add_logging_args(parser)
     _add_debug_args(parser)
-    _add_gpio_args(parser)
+    _add_reg_inject_args(parser)
     _add_seed_args(parser)
     _add_tpool_export_args(parser)  
     _add_benchmark_sync_args(parser)  

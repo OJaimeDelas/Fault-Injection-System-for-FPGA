@@ -2,7 +2,7 @@
 # FATORI-V • FI Targets
 # File: router.py
 # -----------------------------------------------------------------------------
-# Route targets to appropriate injection backend (SEM or GPIO).
+# Route targets to appropriate injection backend (SEM or UART register injection).
 #=============================================================================
 
 import logging
@@ -17,7 +17,7 @@ def inject_target(target: TargetSpec, sem_proto, board_if, logger=None) -> bool:
     
     This is the main dispatch function that routes targets based on their kind:
     - CONFIG targets → SEM protocol (configuration bits)
-    - REG targets → Board interface (registers via GPIO)
+    - REG targets → Board interface (registers via UART fi_coms protocol)
     
     Args:
         target: TargetSpec to inject
@@ -71,15 +71,15 @@ def _inject_config_bit(target: TargetSpec, sem_proto) -> bool:
 
 def _inject_register(target: TargetSpec, board_if) -> bool:
     """
-    Inject register via board interface (GPIO).
+    Inject register via board interface (UART).
     
-    Extracts the register ID and module name from the target and
-    sends them to the board interface, which handles the GPIO
-    signaling to the FPGA.
+    Extracts the register ID from the target and sends it to the
+    board interface, which handles the UART fi_coms command to
+    the FPGA injection logic.
     
     Args:
         target: TargetSpec with REG kind
-        board_if: Board interface for GPIO control
+        board_if: Board interface for UART-based register injection
     
     Returns:
         True if register injection succeeded
@@ -87,7 +87,7 @@ def _inject_register(target: TargetSpec, board_if) -> bool:
     try:
         reg_id = target.reg_id
         
-        # Send to board interface (GPIO pins)
+        # Send to board interface (UART fi_coms command)
         # The board interface returns True/False for success
         success = board_if.inject_register(reg_id, bit_index=None)
         

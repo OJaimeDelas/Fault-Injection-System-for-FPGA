@@ -17,88 +17,30 @@ for injection.
 
 ### SystemDict — Hardware Description
 
-The **system dictionary** (loaded from YAML) describes the hardware:
-```yaml
-xcku040:
-  full_device_region: "CLOCKREGION_X0Y0:CLOCKREGION_X8Y8"
-  registers:
-    - reg_id: 0
-      name: "alu_out"
-    - reg_id: 1
-      name: "alu_acc"
-  modules:
-    alu:
-      description: "Arithmetic Logic Unit"
-      registers: [0, 1]  # reg_ids that belong to this module
-      pblock:
-        name: "alu_pb"
-        region: "CLOCKREGION_X1Y2:CLOCKREGION_X1Y3"
-    lsu:
-      description: "Load-Store Unit"
-      registers: [2, 3]
-      pblock:
-        name: "lsu_pb"
-        region: "CLOCKREGION_X2Y1:CLOCKREGION_X2Y2"
+The **system dictionary** is a YAML file that describes the FPGA hardware: device geometry, modules with spatial coordinates, and register definitions.
 
-basys3:
-  full_device_region: "CLOCKREGION_X0Y0:CLOCKREGION_X3Y3"
-  # ... similar structure for different board
+**Structure:**
+```yaml
+board_name:              # e.g., xcku040, basys3
+  device:                # FPGA geometry for ACME
+    min_x, max_x, min_y, max_y, wf
+  targets:               # Modules with coordinates and registers
+    module_key:
+      x_lo, y_lo, x_hi, y_hi
+      registers: [list of reg_ids]
+      module: "module_name"
+  registers:             # Complete register index
+    id: {name: "reg_name", module: "module_name"}
 ```
 
-#### Per-Board Structure
+**See:** Main README (lines 150-230) for complete format details and examples.
 
-The system dictionary uses a **per-board structure** where each board
-(e.g., basys3, xcku040) has its own complete hardware description. This allows:
+**Board Resolution:**
+- CLI `--board` argument (explicit)
+- Auto-detect if only one board in dictionary
+- DEFAULT_BOARD_NAME from fi_settings.py (fallback)
 
-1. **Multi-board support**: One YAML can describe multiple board configurations
-2. **Board resolution**: System automatically selects board via:
-   - CLI `--board` argument (explicit)
-   - Auto-detect if only one board in dict
-   - DEFAULT_BOARD_NAME from fi_settings.py (fallback)
-3. **Complete isolation**: Each board has its own registers, modules, pblocks
-
-#### Module-Register Relationship
-
-The relationship between modules and registers is defined in the `modules`
-section via the `registers` field (list of reg_ids). The registers list at
-the board level simply defines what registers exist.
-
-Example:
-```yaml
-registers:
-  - reg_id: 0
-    name: "alu_out"
-  - reg_id: 1
-    name: "alu_acc"
-  - reg_id: 2
-    name: "lsu_addr"
-
-modules:
-  alu:
-    registers: [0, 1]  # alu_out and alu_acc belong to ALU
-  lsu:
-    registers: [2]     # lsu_addr belongs to LSU
-```
-
-#### Pblock Coordinates
-
-Each module has an embedded pblock (physical block) with clock region coordinates:
-```yaml
-pblock:
-  name: "alu_pb"
-  region: "CLOCKREGION_X1Y2:CLOCKREGION_X1Y3"
-```
-
-These coordinates are used by ACME to expand the pblock into specific
-configuration bit addresses.
-
-#### full_device_region
-
-The `full_device_region` field specifies the complete device region and is
-used by device-wide area profiles that inject across the entire FPGA:
-```yaml
-full_device_region: "CLOCKREGION_X0Y0:CLOCKREGION_X3Y3"
-```
+---
 
 ### TargetSpec — Unified Target Representation
 
@@ -127,7 +69,7 @@ class TargetSpec:
 The `TargetKind` enum distinguishes between the two target types:
 
 - **CONFIG**: Configuration bit (logic) injection via SEM
-- **REG**: Register injection via GPIO/board interface
+- **REG**: Register injection via UART fi_coms protocol
 
 #### Field Validation
 
@@ -286,7 +228,7 @@ success = route_target(
   - Injects configuration bits (logic/LUTs/routing)
 
 - **REG targets** → `board_if.inject_register(reg_id)`
-  - Routes to board interface (GPIO)
+  - Routes to board interface (UART fi_coms)
   - Handled by `fi/targets/board_interface.py`
   - Injects faults into flip-flops
 
@@ -439,7 +381,7 @@ targets:
 - **Flat pools**: TargetPool is just a list, no hierarchy or selection logic
 - **Area profiles build pools**: Profiles are responsible for expanding modules/pblocks
 - **Time profiles consume pools**: Profiles iterate through pools via pop_next()
-- **Router dispatches**: CONFIG → SEM, REG → GPIO (determined at injection time)
+- **Router dispatches**: CONFIG → SEM, REG → UART register injection (determined at injection time)
 
 ## Files
 
@@ -447,10 +389,9 @@ targets:
 - `types.py`: TargetSpec and TargetKind definitions
 - `pool.py`: TargetPool container class
 - `pool_loader.py`: Load explicit pools from YAML files
-- `router.py`: Route targets to SEM or GPIO backend
+- `router.py`: Route targets to SEM or UART-based register injection backend
 - `acme_sem_decoder.py`: ACME interface for address expansion
 - `board_interface.py`: Board-level register injection interface
-- `gpio_reg_decoder.py`: Helper for GPIO register injection
 
 ## SystemDict Loading
 ```python
@@ -516,11 +457,11 @@ Complete injection flow from area profile to hardware:
      │        │
      │ CONFIG │ REG
      ▼        ▼
-┌─────────┐ ┌──────────────┐
-│   SEM   │ │ Board        │
-│ Protocol│ │ Interface    │
-│ (UART)  │ │ (GPIO)       │
-└─────────┘ └──────────────┘
+┌─────────┐ ┌───────────────┐
+│   SEM   │ │ Board         │
+│ Protocol│ │ Interface     │
+│ (UART)  │ │ (UART fi_coms)│
+└─────────┘ └───────────────┘
      │              │
      ▼              ▼
 ┌─────────┐ ┌──────────────┐
@@ -534,4 +475,31 @@ Each layer has a clear responsibility:
 - **Time profiles**: Schedule injections (WHEN to inject)
 - **Controller**: Orchestrate injection process
 - **Router**: Dispatch to correct backend (HOW to inject)
-- **Backends**: Physical injection (SEM/GPIO)
+- **Backends**: Physical injection (SEM/UART register injection)
+
+---
+
+## Related Documentation
+
+### Core Systems
+- [Main README](../Readme.md) - System overview, target system section
+- [Config System](../core/config/Readme.md) - Configuration management
+- [Campaign Controller](../core/campaign/Readme.md) - Consumes TargetPool
+
+### Backends
+- [Backend Overview](../backend/Readme.md) - Where targets are routed
+- [SEM Backend](../backend/sem/Readme.md) - CONFIG target injection
+- [Register Injection](../backend/reg_inject/Readme.md) - REG target injection
+
+### Profiles
+- [Profile Overview](../profiles/Readme.md) - Profile system
+- [Area Profiles](../profiles/area/Readme) - Build TargetPool
+- [Time Profiles](../profiles/time/Readme) - Consume targets via controller
+
+### See Also
+- `fi_settings.py` - TPOOL_DEFAULT_SIZE
+- `types.py` - TargetSpec and TargetKind definitions
+- `pool.py` - TargetPool implementation
+- `router.py` - Target routing to backends
+- `dict_loader.py` - System dictionary loading
+- Target pool export in main README

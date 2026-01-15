@@ -9,7 +9,7 @@ levels, and per-category filtering.
 
 - `events.py`: Core logging functions and infrastructure
 - Controlled by `fi_settings.py` configuration
-- Setup via `fi/core/campaign/logging_setup.py`
+- Setup via `core/logging/setup.py`
 
 ### Verbosity Levels
 
@@ -33,20 +33,41 @@ Set via `LOG_LEVEL` in `fi_settings.py`:
   - Per-module pool breakdowns
   - SEM command details
 
-### Per-Category Toggles
+### Logging Configuration
 
-Each event category can be independently enabled/disabled in
-`fi_settings.py`:
-```python
-LOG_SYSTEMDICT = True       # SystemDict loading
-LOG_BOARD_RESOLUTION = True # Board resolution
-LOG_ACME = True             # ACME expansions
-LOG_POOL_BUILDING = True    # Pool building
-LOG_INJECTIONS = True       # Individual injections
-LOG_SEM_COMMANDS = True     # SEM commands
-LOG_ERRORS = True           # Errors (always recommended)
-LOG_CAMPAIGN = True         # Campaign start/end
+The logging system uses centralized event-based configuration via `log_levels.py`. Instead of individual boolean flags, logging is controlled by verbosity levels that enable/disable event categories.
+
+#### Verbosity Levels
+
+- **MINIMAL**: Errors and critical campaign events only
+- **NORMAL**: Standard logging (recommended for production)
+- **VERBOSE**: Detailed logging including every injection
+
+Set via CLI:
+```bash
+--log-level {minimal,normal,verbose}
 ```
+
+Set via `fi_settings.py`:
+```python
+LOG_LEVEL = 'normal'  # Options: 'minimal', 'normal', 'verbose'
+```
+
+#### Event Categories
+
+Each event (e.g., `injection`, `sem_preflight`, `reg_inject_init`) is mapped to visibility settings for each verbosity level.
+
+Event definitions are in `core/logging/log_levels.py`. Each event has:
+- Event name (string identifier)
+- Console visibility (boolean)
+- File visibility (boolean)
+
+To customize logging behavior:
+1. Edit `core/logging/log_levels.py`
+2. Modify the event lists for MINIMAL, NORMAL, or VERBOSE
+3. Each event entry: `(event_name, to_console, to_file)`
+
+See `log_levels.py` for the complete event catalog.
 
 ### Output Destinations
 
@@ -60,7 +81,7 @@ LOG_CAMPAIGN = True         # Campaign start/end
 
 Import and call logging functions:
 ```python
-from fi.log.events import log_systemdict_loaded, log_error
+from fi.core.logging.events import log_systemdict_loaded, log_error
 
 # Log successful operation
 system_dict = load_system_dict(path)
@@ -114,7 +135,7 @@ To add a new logged event:
 
 3. **Call from code**:
 ```python
-   from fi.log.events import log_my_event
+   from fi.core.logging.events import log_my_event
    
    log_my_event("something happened", 42)
 ```
@@ -190,3 +211,24 @@ Campaign Complete: 5000 injections (4998 successes, 2 failures)
 ...
 Campaign Complete: 5000 injections (4998 successes, 2 failures)
 ```
+
+---
+
+## Related Documentation
+
+### Core Systems
+- [Main README](../../Readme.md) - System overview
+- [Config System](../config/Readme.md) - Log configuration settings
+- [Campaign Controller](../campaign/Readme.md) - Campaign event logging
+
+### Backends
+- [Backend Overview](../../backend/Readme.md) - Backend event logging
+- [SEM Backend](../../backend/sem/Readme.md) - SEM event logging
+- [Register Injection](../../backend/reg_inject/Readme.md) - Register injection events
+
+### See Also
+- `fi_settings.py` - LOG_LEVEL and logging configuration
+- `log_levels.py` - Event catalog and visibility settings
+- `events.py` - Log function implementations
+- `message_formats.py` - Message formatting
+- Campaign logs in `<log_root>/injection_log.txt`

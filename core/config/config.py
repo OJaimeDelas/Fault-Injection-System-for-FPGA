@@ -63,10 +63,9 @@ class Config:
     default_board_name: str
 
     # GPIO configuration (auto-enabled based on pool analysis)
-    gpio_force_disabled: bool = False
-    gpio_pin: int = 17
-    gpio_idle_id: int = 0
-    gpio_reg_id_width: int = 8
+    reg_inject_force_disabled: bool = False
+    reg_inject_idle_id: int = 0
+    reg_inject_reg_id_width: int = 8
 
     # Seeds for reproducibility
     global_seed: Optional[int] = None
@@ -239,10 +238,9 @@ def build_config(args) -> Config:
         default_board_name=get_with_fallback(args, 'default_board', fi_settings.DEFAULT_BOARD_NAME),
         
         # GPIO configuration
-        gpio_force_disabled=getattr(args, 'gpio_disabled', fi_settings.INJECTION_GPIO_FORCE_DISABLED),
-        gpio_pin=get_with_fallback(args, 'gpio_pin', fi_settings.INJECTION_GPIO_PIN),
-        gpio_idle_id=get_with_fallback(args, 'gpio_idle_id', fi_settings.INJECTION_GPIO_IDLE_ID),
-        gpio_reg_id_width=get_with_fallback(args, 'gpio_reg_id_width', fi_settings.INJECTION_GPIO_REG_ID_WIDTH),
+        reg_inject_force_disabled=getattr(args, 'reg_inject_disabled', fi_settings.INJECTION_REG_FORCE_DISABLED),
+        reg_inject_idle_id=get_with_fallback(args, 'reg_inject_idle_id', fi_settings.INJECTION_REG_IDLE_ID),
+        reg_inject_reg_id_width=get_with_fallback(args, 'reg_inject_reg_id_width', fi_settings.INJECTION_REG_ID_WIDTH),
         
         # Seeds for reproducibility
         global_seed=global_seed,

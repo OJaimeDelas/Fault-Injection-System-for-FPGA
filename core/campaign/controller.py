@@ -23,7 +23,7 @@ class InjectionController:
     
     This controller provides a clean API for time profiles:
     - Iterate through pre-built TargetPool
-    - Route targets to SEM or GPIO backend
+    - Route targets to SEM or register injection backend
     - Log injection results
     - Track statistics
     - Provide timing utilities
@@ -115,7 +115,7 @@ class InjectionController:
         Execution priority order:
         1. Check external benchmark sync (if enabled)
         2. Capture timestamp BEFORE injection (accuracy critical)
-        3. Route target to backend (SEM or GPIO, non-blocking)
+        3. Route target to backend (SEM or register injection, non-blocking)
         4. Update statistics
         5. Log injection with captured timestamp (async)
         6. Update sync tracking
@@ -149,7 +149,7 @@ class InjectionController:
         # not completion times or logging times
         injection_timestamp = time.monotonic()
         
-        # Route to appropriate backend (CONFIG → SEM, REG → GPIO)
+        # Route to appropriate backend (CONFIG → SEM, REG → UART register injection)
         # Note: router.inject_target handles the dispatching
         success = router.inject_target(
             target=target,
@@ -312,7 +312,7 @@ def create_injection_controller(
     Args:
         sem_proto: SEM protocol wrapper
         target_pool: Pre-built TargetPool
-        board_if: Board interface for GPIO
+        board_if: Board interface for UART-based register injection
         log_ctx: Logging context
         benchmark_sync: Optional BenchmarkSync for external coordination
     

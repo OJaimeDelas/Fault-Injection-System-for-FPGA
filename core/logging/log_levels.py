@@ -48,7 +48,7 @@ MINIMAL = [
     
     # Errors - always need to see these
     ('error', True, True),
-    ('gpio_error', True, True),              # GPIO validation errors
+    ('reg_inject_error', True, True),              # Register Injection validation errors
     ('sem_preflight_error', True, True),     # SEM preflight failures
 ]
 
@@ -89,11 +89,11 @@ NORMAL = [
     ('pool_built', True, True),
     ('acme_expansion', True, True),
     
-    # GPIO events
-    ('gpio_init', True, True),           # GPIO initialization
-    ('gpio_inject', False, True),        # File only - high frequency
-    ('gpio_error', True, True),          # Validation errors
-    ('gpio_placeholder', True, True),    # Unimplemented warning
+    # Register Injection events
+    ('reg_inject_init', True, True),         # Register injection initialization
+    ('reg_inject_inject', False, True),      # File only - high frequency
+    ('reg_inject_error', True, True),        # Validation errors
+    ('reg_inject_placeholder', True, True),  # Missing transport warning
     
     # SEM preflight events
     ('sem_preflight_testing', True, True),  # Preflight start
@@ -152,11 +152,11 @@ VERBOSE = [
     ('acme_expansion', True, True),
     ('acme_cache_hit', True, True),  # Now visible on console
     
-    # GPIO events - all visible
-    ('gpio_init', True, True),
-    ('gpio_inject', True, True),       # See every injection
-    ('gpio_error', True, True),
-    ('gpio_placeholder', True, True),
+    # Register Injection events - all visible
+    ('reg_inject_init', True, True),
+    ('reg_inject_inject', True, True),       # See every injection
+    ('reg_inject_error', True, True),
+    ('reg_inject_placeholder', True, True),
     
     # SEM preflight events - all visible
     ('sem_preflight_testing', True, True),

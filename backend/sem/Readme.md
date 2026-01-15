@@ -105,20 +105,25 @@ The stub maintains timing accuracy by:
 - Minimal delays in `write()/read()` (~0.008ms per byte)
 - No response collection delays
 
-## Implementation Notes
+## Related Documentation
 
-**Do:**
-- Keep inject_lfa() fire-and-forget
-- Use setup commands when verification needed
-- Return immediately from injection path
+### Backend Systems
+- [Backend Overview](../Readme.md) - All backend subsystems
+- [Register Injection](../reg_inject/Readme.md) - Shares UART transport with SEM
+- [ACME Backend](../acme/Readme.md) - Generates configuration addresses
 
-**Don't:**
-- Add response collection to inject_lfa()
-- Wait for acknowledgment in campaigns
-- Block injection timing for logging
+### Core Systems
+- [Main README](../../Readme.md) - System overview
+- [Config System](../../core/config/Readme.md) - SEM configuration settings
+- [Campaign Controller](../../core/campaign/Readme.md) - Uses SEM for CONFIG injection
 
-## See Also
+### Targets
+- [Target System](../../targets/Readme.md) - CONFIG targets route to SEM
 
-- `transport.py` - UART layer details
-- `protocol.py` - Full command reference
+### See Also
+- `fi_settings.py` - SEM default settings (clock, preflight, etc.)
+- `fault_injection.py` - SEM initialization and setup
+- `targets/router.py` - Routes CONFIG targets to SEM backend
+- `transport.py` - UART layer implementation details
+- `protocol.py` - Full SEM command reference
 - `setup.py` - Connection initialization

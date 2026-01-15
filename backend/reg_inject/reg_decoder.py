@@ -1,15 +1,15 @@
 # =============================================================================
-# FATORI-V • FI Targets — GPIO Register Decoder
-# File: gpio_reg_decoder.py
+# FATORI-V • FI Backend Register Injection
+# File: reg_decoder.py
 # -----------------------------------------------------------------------------
 # Helpers for handling register-based fault-injection targets.
 #
 # The FI engine represents all targets as TargetSpec objects. This module
 # focuses on targets whose kind is "reg_id" or "reg_bit" and forwards them
-# to a board interface that knows how to drive the actual hardware.
+# to a board interface that handles UART-based register injection.
 #
-# The board interface type is defined in fi.targets.board_interface and
-# is intentionally minimal: a single inject_register(...) method.
+# The board interface type is defined in fi.backend.reg_inject.board_interface
+# and is intentionally minimal: a single inject_register(...) method.
 #=============================================================================
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fi.targets.types import TargetSpec
-from fi.backend.gpio.board_interface import BoardInterface
+from fi.backend.reg_inject.board_interface import BoardInterface
 
 
 def _log(logger: Any, level: str, message: str) -> None:
@@ -52,7 +52,8 @@ def inject_register_target(
         TargetSpec whose kind is "reg_id" or "reg_bit". The reg_id and
         optional bit_index fields are used to steer the injection.
     board_if:
-        Instance implementing the BoardInterface protocol.
+        Instance implementing the BoardInterface protocol for UART-based
+        register injection via fi_coms.
     logger:
         Optional logger used for informational and error messages.
 
@@ -66,7 +67,7 @@ def inject_register_target(
         _log(
             logger,
             "error",
-            f"gpio_reg_decoder called with non-register target kind '{target.kind}'.",
+            f"reg_decoder called with non-register target kind '{target.kind}'.",
         )
         return False
 

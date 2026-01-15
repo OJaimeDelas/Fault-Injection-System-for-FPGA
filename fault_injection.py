@@ -13,7 +13,7 @@
 #   6. Setup benchmark synchronization (if enabled)
 #   7. Build TargetPool
 #   8. Analyze pool to determine backend requirements
-#   9. Initialize backends conditionally (SEM, GPIO)
+#   9. Initialize backends conditionally (SEM, REG_INJECT)
 #  10. Create controller
 #  11. Run campaign
 #  12. Cleanup
@@ -53,7 +53,7 @@ from fi.core.campaign.pool_builder import build_campaign_pool
 
 # Injection
 from fi.core.campaign.controller import create_injection_controller
-from fi.backend.gpio.board_interface import create_board_interface
+from fi.backend.reg_inject.board_interface import create_board_interface
 
 # Synchronization
 from fi.core.campaign.sync import BenchmarkSync
@@ -84,7 +84,7 @@ def main(argv: Optional[list] = None) -> int:
       7. Setup benchmark synchronization (if enabled)
       8. Build TargetPool
       9. Analyze pool to determine backend requirements
-     10. Initialize backends conditionally (SEM, GPIO)
+     10. Initialize backends conditionally (SEM, REG_INJECT)
      11. Create controller
      12. Run campaign
      13. Cleanup
@@ -159,14 +159,14 @@ def main(argv: Optional[list] = None) -> int:
         
         # 8. Analyze pool to determine backend requirements
         backend_reqs = target_pool.get_backend_requirements()
-        logger.info(f"Backend requirements: SEM={backend_reqs['sem']}, GPIO={backend_reqs['gpio']}")
+        logger.info(f"Backend requirements: SEM={backend_reqs['sem']}, REG_INJECT={backend_reqs['reg_inject']}")
         
         # 9. Initialize backends conditionally based on pool analysis
         
-        # Open transport if either SEM or GPIO backends are needed
+        # Open transport if either SEM or register injection backends are needed
         # Both backends share the same UART connection
         transport = None
-        if backend_reqs["sem"] or backend_reqs["gpio"]:
+        if backend_reqs["sem"] or backend_reqs["reg_inject"]:
             logger.info("Opening UART transport for injection backends")
             transport, _ = open_sem(cfg, log_ctx)
         
@@ -180,17 +180,17 @@ def main(argv: Optional[list] = None) -> int:
         else:
             logger.info("Skipping SEM initialization (no CONFIG targets in pool)")
         
-        # GPIO backend (for REG targets)
+        # Register injection backend (for REG targets)
         board_if = None
-        if backend_reqs["gpio"]:
-            if cfg.gpio_force_disabled:
-                logger.info("GPIO force-disabled by --gpio-disabled flag (REG targets will use NoOp)")
+        if backend_reqs["reg_inject"]:
+            if cfg.reg_inject_force_disabled:
+                logger.info("Register injection disabled by --reg-inject-disabled flag (REG targets will use NoOp)")
             else:
-                logger.info("Initializing GPIO backend (REG targets detected in pool)")
+                logger.info("Initializing register injection backend (REG targets detected in pool)")
             # Pass transport to board interface factory
             board_if = create_board_interface(cfg, transport=transport)
         else:
-            logger.info("Skipping GPIO initialization (no REG targets in pool)")
+            logger.info("Skipping register injection initialization (no REG targets in pool)")
         
         # 10. Create injection controller with backends (may be None)
         controller = create_injection_controller(
