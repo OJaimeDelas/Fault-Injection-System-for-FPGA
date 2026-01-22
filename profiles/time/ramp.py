@@ -75,6 +75,9 @@ class RampTimeProfile:
     def run(self, controller) -> None:
         """
         Drive the injection controller while sweeping the rate.
+        
+        The rate changes linearly from start_rate_hz to end_rate_hz over duration_s.
+        Period is recalculated at each injection based on current elapsed time.
         """
         start_t = base.now_monotonic()
         next_deadline = start_t
@@ -98,11 +101,20 @@ class RampTimeProfile:
                 controller.set_termination_reason("Target pool exhausted")
                 break
 
-            # Wait until the planned deadline.
+            # Wait until the planned deadline
             if now < next_deadline:
                 controller.sleep(next_deadline - now)
 
             controller.inject_target(target)
+            
+            # Calculate current rate and convert to period for next injection
+            current_rate = self._current_rate(elapsed)
+            if current_rate <= 0:
+                # Safety check: avoid division by zero
+                period_s = 1.0
+            else:
+                period_s = 1.0 / current_rate
+            
             next_deadline += period_s
 
 

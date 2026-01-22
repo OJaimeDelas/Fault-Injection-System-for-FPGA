@@ -100,7 +100,7 @@ DEFAULT_TIME_ARGS = "rate_hz=1"
 # Default path to the EBD file used by ACME to map regions to configuration
 # bits. This file should describe the whole device and is shared across
 # modules/pblocks on the same board. The CLI can override this path per run.
-DEFAULT_EBD_PATH = "backend/acme/design.ebd"
+DEFAULT_EBD_PATH = "../iob_soc_V1.0/hardware/fpga/iob_soc_iob_aes_ku040_db_g.ebd"
 
 # ACME cache directory
 # Cache location for ACME-expanded configuration bit addresses
