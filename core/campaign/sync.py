@@ -72,17 +72,17 @@ class BenchmarkSync:
     
     def wait_for_benchmark_ready(self, timeout_s: Optional[float] = None) -> bool:
         """
-        Wait for signal file to appear (blocking).
+        Wait for signal file to appear, then replace contents with "READY".
         
         This function blocks campaign execution until the benchmark signals
-        readiness by creating the signal file. Used to ensure benchmarks
-        are fully initialized before fault injection begins.
+        readiness by creating the signal file. Once detected, the file contents
+        are replaced with "READY" to signal back to the benchmark.
         
         Args:
             timeout_s: Maximum seconds to wait (None = wait forever)
         
         Returns:
-            True if file appeared, False if timeout occurred
+            True if file appeared and replaced, False if timeout occurred
         """
         if not self.enabled:
             # Sync disabled - immediately ready
@@ -98,6 +98,16 @@ class BenchmarkSync:
                 log_sync_ready()
                 self.file_appeared = True
                 self.last_check_time = time.time()
+                
+                # Replace file contents with "READY"
+                try:
+                    with self.sync_file_path.open('w') as f:
+                        f.write("READY")
+                except Exception as e:
+                    # Log but don't fail - sync file detection succeeded
+                    from fi.core.logging.events import log_event
+                    log_event('WARNING', message=f"Could not replace sync file contents: {e}")
+                
                 return True
             
             # Check timeout if specified
