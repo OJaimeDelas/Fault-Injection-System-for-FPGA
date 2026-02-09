@@ -8,7 +8,7 @@
 # Parameters (from args dict):
 #   rate_hz    : average injections per second (float, required)
 #   duration_s : optional stop time in seconds; if omitted, runs until the
-#                controller requests a stop or the area profile is exhausted.
+#                controller requests a stop or the target pool is exhausted.
 #   seed       : optional local seed for reproducible timing; if omitted, the
 #                engine's global_seed is used.
 #=============================================================================
@@ -25,16 +25,10 @@ PROFILE_NAME = "poisson"
 
 
 def describe() -> str:
-    """
-    Human-readable one-line description of this time profile.
-    """
     return "Poisson process with exponential inter-arrival times at a fixed rate."
 
 
 def default_args() -> Dict[str, Any]:
-    """
-    Default argument values for documentation and tooling.
-    """
     return {
         "rate_hz": 1.0,
         "duration_s": None,
@@ -44,8 +38,7 @@ def default_args() -> Dict[str, Any]:
 
 class PoissonTimeProfile:
     """
-    Generates exponential inter-arrival times for injections at a constant
-    average rate.
+    Drives injections with exponential inter-arrival times at a constant rate.
     """
 
     def __init__(self, rate_hz: float, duration_s: Optional[float], rng) -> None:
@@ -56,33 +49,33 @@ class PoissonTimeProfile:
         self._rng = rng
 
     def run(self, controller) -> None:
-        """
-        Drive the injection controller using exponential inter-arrival spacing.
-        """
         start_t = base.now_monotonic()
-        current_t = start_t
 
         while True:
-            # Check for external stop signal
             if controller.should_stop():
                 controller.set_termination_reason("Stop requested")
                 break
-            
-            # Check optional duration limit
-            if self._duration_s is not None:
-                elapsed = base.now_monotonic() - start_t
-                if elapsed >= self._duration_s:
-                    controller.set_termination_reason("Duration limit reached")
-                    break
-            
-            # Get next target
+
+            now = base.now_monotonic()
+            if self._duration_s is not None and (now - start_t) >= self._duration_s:
+                controller.set_termination_reason("Duration limit reached")
+                break
+
+            # Sample the next inter-arrival time and compute an absolute deadline.
+            delta_t = base.sample_exponential(self._rng, self._rate_hz)
+            deadline = now + delta_t
+
+            # If the next scheduled event would occur beyond duration_s, stop.
+            if self._duration_s is not None and (deadline - start_t) >= self._duration_s:
+                controller.set_termination_reason("Duration limit reached")
+                break
+
             target = controller.next_target()
             if target is None:
                 controller.set_termination_reason("Target pool exhausted")
                 break
 
-            now = base.now_monotonic()
-            delay = current_t - now
+            delay = deadline - base.now_monotonic()
             if delay > 0.0:
                 controller.sleep(delay)
 
@@ -95,9 +88,6 @@ def make_profile(
     global_seed: Optional[int],
     settings: Any,
 ) -> PoissonTimeProfile:
-    """
-    Factory for the Poisson time profile.
-    """
     _ = settings
 
     rate_hz = base.parse_float(args, "rate_hz", default=None)
