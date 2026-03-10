@@ -115,6 +115,48 @@ class Basys3Board:
         
         return (x, y)
     
+    def la_to_clock_region_bounds(self, la: int) -> Tuple[int, int, int]:
+        """
+        Convert LA to (X, Y_min, Y_max) where Y range covers the clock region.
+        
+        For Basys3/Artix-7, provides X coordinate and clock region Y bounds.
+        Since exact Y cannot be determined from LA alone, returns full region bounds.
+        
+        Args:
+            la: Linear frame address
+        
+        Returns:
+            Tuple of (x, y_min, y_max) where:
+            - x: Approximate X tile coordinate
+            - y_min: Minimum Y of clock region containing this LA
+            - y_max: Maximum Y of clock region containing this LA
+        """
+        # Determine approximate clock region based on LA value
+        region_row = (la // self.FY) % 6
+        
+        # Estimate X coordinate
+        frame_in_region = la % self.FY
+        x = self.MIN_X + ((frame_in_region * self.MAX_X) // self.FY)
+        
+        # Get Y bounds for the clock region
+        if region_row == 0:
+            y_min, y_max = self.MIN_Y, self.Y5
+        elif region_row == 1:
+            y_min, y_max = self.Y5 + 1, self.Y4
+        elif region_row == 2:
+            y_min, y_max = self.Y4 + 1, self.Y3
+        elif region_row == 3:
+            y_min, y_max = self.Y3 + 1, self.Y2
+        elif region_row == 4:
+            y_min, y_max = self.Y2 + 1, self.Y1
+        else:
+            y_min, y_max = self.Y1 + 1, self.MAX_Y
+        
+        # Clamp X to device bounds
+        x = max(self.MIN_X, min(x, self.MAX_X))
+        
+        return (x, y_min, y_max)
+    
     def xy_to_la_range(self, x: int, y: int) -> Tuple[int, int]:
         """
         Convert physical tile coordinates to linear frame address range.

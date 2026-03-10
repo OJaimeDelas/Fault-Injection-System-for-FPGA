@@ -99,14 +99,22 @@ class BenchmarkSync:
                 self.file_appeared = True
                 self.last_check_time = time.time()
                 
-                # Replace file contents with "READY"
+               # Replace file contents with "READY"
                 try:
                     with self.sync_file_path.open('w') as f:
                         f.write("READY")
+                    logger.info("Wrote READY to sync file")
                 except Exception as e:
-                    # Log but don't fail - sync file detection succeeded
-                    from fi.core.logging.events import log_event
-                    log_event('WARNING', message=f"Could not replace sync file contents: {e}")
+                    # Fail-fast if we can't write READY - benchmark won't know we're ready
+                    logger.error(f"CRITICAL: Could not write READY to sync file: {e}")
+                    return False
+                
+                # Apply post-synchronization delay if configured
+                from fi import fi_settings
+                if fi_settings.SYNC_DELAY_S > 0:
+                    logger.info(f"Applying sync delay: {fi_settings.SYNC_DELAY_S}s")
+                    time.sleep(fi_settings.SYNC_DELAY_S)
+                    logger.info("Sync delay complete - starting injection campaign")
                 
                 return True
             

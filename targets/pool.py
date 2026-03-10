@@ -51,6 +51,26 @@ class TargetPool:
         """Initialize empty target pool."""
         self._targets: List[TargetSpec] = []
         self._position = 0
+        self._requested_modules: List[str] = []  # Track all modules requested for pool
+    
+    def set_requested_modules(self, modules: List[str]) -> None:
+        """
+        Set list of modules that were requested for this pool.
+        
+        Used by area profiles to ensure statistics show all requested modules,
+        even those with zero targets (e.g., ALU with no registers or config bits).
+        
+        Args:
+            modules: List of module names requested for injection
+        
+        Example:
+            >>> pool = TargetPool()
+            >>> pool.set_requested_modules(['alu', 'lsu', 'controller'])
+            >>> pool.add(lsu_target)
+            >>> pool.add(controller_target)
+            >>> # Statistics will show all 3 modules, even though ALU has 0 targets
+        """
+        self._requested_modules = modules[:]
     
     def add(self, target: TargetSpec) -> None:
         """
@@ -146,23 +166,35 @@ class TargetPool:
         - Outer dict: module_name -> inner dict
         - Inner dict: kind string -> count
         
+        Includes all requested modules (set via set_requested_modules), even
+        those with zero targets, to provide complete statistics.
+        
         Returns:
             Dict mapping module name to {kind: count} dict
         
         Example:
+            >>> pool = TargetPool()
+            >>> pool.set_requested_modules(['alu', 'lsu'])
+            >>> pool.add(lsu_target_reg)
             >>> counts = pool.count_by_module()
             >>> counts
             {
-                'alu': {'CONFIG': 250, 'REG': 100},
-                'lsu': {'CONFIG': 500, 'REG': 150}
+                'alu': {'CONFIG': 0, 'REG': 0},    # Shows even with 0 targets
+                'lsu': {'CONFIG': 0, 'REG': 1}
             }
         """
+        # Initialize with all requested modules (if set)
         counts = {}
+        for module in self._requested_modules:
+            counts[module] = {"CONFIG": 0, "REG": 0}
+        
+        # Count actual targets (may add new modules not in requested list)
         for target in self._targets:
             if target.module_name not in counts:
                 # Initialize with zero counts for both kinds
                 counts[target.module_name] = {"CONFIG": 0, "REG": 0}
             counts[target.module_name][target.kind.value] += 1
+        
         return counts
     
     def has_config_targets(self) -> bool:

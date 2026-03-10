@@ -34,7 +34,13 @@ DEFAULT_BAUDRATE = 115200
 SEM_CLOCK_HZ = 60_000_000
 
 # Require successful SEM preflight test before starting campaign
-SEM_PREFLIGHT_REQUIRED = False
+SEM_PREFLIGHT_REQUIRED = True
+
+# SEM preflight retry configuration
+# After EBD generation, FPGA needs time to program and boot before SEM IP responds
+# Retry preflight test multiple times with delays to handle boot time
+SEM_PREFLIGHT_TIMEOUT = 700.0        # Total timeout in seconds (allow time for FPGA boot)
+SEM_PREFLIGHT_RETRY_INTERVAL = 20.0  # Seconds between retry attempts
 
 
 # -----------------------------------------------------------------------------
@@ -101,6 +107,11 @@ DEFAULT_TIME_ARGS = "rate_hz=1"
 # bits. This file should describe the whole device and is shared across
 # modules/pblocks on the same board. The CLI can override this path per run.
 DEFAULT_EBD_PATH = "../iob_soc_V1.0/hardware/fpga/iob_soc_iob_aes_ku040_db_g.ebd"
+
+# Enable ACME address caching to speed up repeated expansions
+# When True: Cache configuration bit addresses to disk (faster reruns)
+# When False: Always regenerate addresses from EBD (slower but guarantees fresh results)
+ACME_CACHE_ENABLED = False
 
 # ACME cache directory
 # Cache location for ACME-expanded configuration bit addresses
@@ -210,3 +221,8 @@ BENCHMARK_CHECK_EVERY_N_INJECTIONS = 100
 # Maximum time to wait for the benchmark to signal readiness.
 # None = wait forever.
 BENCHMARK_SYNC_TIMEOUT = None
+
+# Delay in seconds after synchronization before starting injections
+# This allows the FPGA/benchmark to fully initialize after receiving READY signal
+# Prevents injections during handshake/initialization period
+SYNC_DELAY_S = 5.0  # Default: no delay; set to >0 if needed (e.g., 2.0 for 2 second delay)

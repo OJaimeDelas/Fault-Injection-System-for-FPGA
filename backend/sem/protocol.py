@@ -43,10 +43,13 @@ class SemProtocol:
         self._re_prompt = re.compile(getattr(cs, "PROMPT_REGEX", r"^[IOD]>\s*$"))
 
     # ------------------------------- primitives --------------------------------
-    def sync_prompt(self, *, window_s: float = 0.5) -> None:
+    def sync_prompt(self, *, window_s: float = 2.0) -> None:
         """
         Drain until a prompt-like line is seen. Intended to be called once at
         startup to align with SEM's current state.
+        
+        Uses 2.0s window by default to account for FPGA boot time after EBD
+        generation completes. SEM IP may take 1-2 seconds to initialize.
         """
         deadline = time.monotonic() + max(0.0, float(window_s))
         collected: List[str] = []
@@ -134,29 +137,33 @@ class SemProtocol:
         self._tr.write_line(raw)
 
     # ------------------------------- collection helpers -----------------------
-    def _collect_until_prompt(self, *, max_wait_s: float = 0.5) -> List[str]:
+    def _collect_until_prompt(self, *, max_wait_s: float = 1.0) -> List[str]:
         """
-        Collect lines until a prompt is seen or the timeout expires. The result
-        contains every line observed, including the prompt itself if present.
+        Collect lines until a prompt is seen, up to max_wait_s.
+        Returns all non-prompt lines.
+        
+        Uses 1.0s timeout to handle slow SEM responses during initialization.
         """
         deadline = time.monotonic() + max(0.0, float(max_wait_s))
-        out: List[str] = []
+        collected: List[str] = []
         while time.monotonic() < deadline:
-            lines = self._tr.read_lines(timeout_s=0.05)
-            if not lines:
-                continue
-            out.extend(lines)
-            if any(self._re_prompt.match(ln) for ln in lines):
-                break
-        return out
+            for ln in self._tr.read_lines(timeout_s=0.05):
+                if self._re_prompt.match(ln):
+                    return collected
+                else:
+                    collected.append(ln)
+        return collected
 
-    def _collect_short_window(self, *, window_s: float = 0.3) -> List[str]:
+    def _collect_short_window(self, *, window_s: float = 1.0) -> List[str]:
         """
-        Collect a brief, fixed-duration window of lines. Suitable for short,
-        self-delimited responses like status reports.
+        Collect lines for a brief duration, typically for status queries.
+        
+        Uses 1.0s window to handle slow SEM status responses during initialization.
+        After FPGA boot, SEM may take time to process first status command.
         """
         deadline = time.monotonic() + max(0.0, float(window_s))
-        out: List[str] = []
+        collected: List[str] = []
         while time.monotonic() < deadline:
-            out.extend(self._tr.read_lines(timeout_s=0.05))
-        return out
+            for ln in self._tr.read_lines(timeout_s=0.05):
+                collected.append(ln)
+        return collected

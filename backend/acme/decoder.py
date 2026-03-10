@@ -18,7 +18,8 @@ def expand_pblock_to_config_bits(
     board_name: str,
     ebd_path: str,
     use_cache: bool = True,
-    cache_dir: str = "gen/acme"
+    cache_dir: str = "gen/acme",
+    module_name: Optional[str] = None
 ) -> List[str]:
     """
     Convert pblock region coordinates to configuration bit addresses.
@@ -31,6 +32,9 @@ def expand_pblock_to_config_bits(
         region: Dict with coordinates {'x_lo': int, 'y_lo': int, 'x_hi': int, 'y_hi': int}
         board_name: Board name (e.g., "basys3", "xcku040")
         ebd_path: Path to .ebd essential bits file
+        use_cache: Whether to use cached results (default: True)
+        cache_dir: Directory for cache files (default: "gen/acme")
+        module_name: Optional module name for logging (e.g., "alu", "controller")
     
     Returns:
         List of LFA address strings (e.g., ["00001234", "00001236", ...])
@@ -47,7 +51,8 @@ def expand_pblock_to_config_bits(
         >>> addresses = expand_pblock_to_config_bits(
         ...     region=region,
         ...     board_name="xcku040",
-        ...     ebd_path="backend/acme/design.ebd"
+        ...     ebd_path="backend/acme/design.ebd",
+        ...     module_name="my_module"
         ... )
         >>> len(addresses)
         1250
@@ -69,7 +74,11 @@ def expand_pblock_to_config_bits(
 
     # Expand region to configuration bit addresses
     try:
-        addresses = engine.expand_region_to_config_bits(region, use_cache=use_cache)
+        addresses = engine.expand_region_to_config_bits(
+            region, 
+            use_cache=use_cache,
+            module_name=module_name
+        )
     except Exception as e:
         log_error(f"ACME expansion failed for region {region}", exc=e)
         return []

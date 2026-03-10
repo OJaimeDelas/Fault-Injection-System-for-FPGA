@@ -216,7 +216,7 @@ def format_campaign_header(config: Any) -> str:
     
     return "\n".join(header_lines)
 
-def format_campaign_end(stats: Dict[str, Any], termination_reason: str = "unknown") -> str:
+def format_campaign_end(stats: Dict, termination_reason: str) -> str:
     """
     Format the campaign completion banner with termination reason.
     
@@ -228,12 +228,18 @@ def format_campaign_end(stats: Dict[str, Any], termination_reason: str = "unknow
         Formatted campaign footer string
     """
     sep = sty.make_section_separator()
+    
+    # Handle both old and new stats dict formats for robustness
+    total = stats.get('total', stats.get('total_injections', 0))
+    successes = stats.get('successes', 0)
+    failures = stats.get('failures', 0)
+    
     return (
         "\n" + sep + "\n" +
         "Campaign Complete:\n" +
-        f"  Total injections: {stats['total']}\n" +
-        f"  Successes: {stats['successes']}\n" +
-        f"  Failures: {stats['failures']}\n" +
+        f"  Total injections: {total}\n" +
+        f"  Successes: {successes}\n" +
+        f"  Failures: {failures}\n" +
         f"  Termination: {termination_reason}\n" +
         sep
     )
@@ -594,3 +600,36 @@ def format_target_list_stats(stats: dict) -> str:
         Formatted stats message
     """
     return f"[target_list] Pool breakdown: {stats['by_kind']}"
+
+
+# =============================================================================
+# EBD Waiter Messages
+# =============================================================================
+
+def format_ebd_waiting(ebd_path: str) -> str:
+    """
+    Format EBD file waiting message.
+
+    Args:
+        ebd_path: Path to the EBD file being waited on
+
+    Returns:
+        Formatted waiting message
+    """
+    return f"[EBD] Waiting for EBD file: {ebd_path}"
+
+
+def format_ebd_ready(ebd_path: str, elapsed_s: float) -> str:
+    """
+    Format EBD file ready message.
+
+    Args:
+        ebd_path: Path to the EBD file that appeared
+        elapsed_s: Seconds elapsed waiting (0.0 if file was already present)
+
+    Returns:
+        Formatted ready message
+    """
+    if elapsed_s == 0.0:
+        return f"[EBD] EBD file ready (already present): {ebd_path}"
+    return f"[EBD] EBD file ready after {elapsed_s:.1f}s: {ebd_path}"

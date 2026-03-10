@@ -84,6 +84,7 @@ class Config:
     tpool_absolute_cap: int = 1_000_000
     ratio_strict: bool = False
 
+    # ACME caching configuration
     acme_cache_enabled: bool = True
     acme_cache_dir: str = "gen/acme"
 
@@ -95,10 +96,7 @@ class Config:
     benchmark_sync_timeout: Optional[float] = None
 
     # Debug mode (testing without hardware)
-    debug: bool = False 
-
-    # ACME caching configuration
-    acme_cache_enabled: bool = True
+    debug: bool = False
 
 def build_config(args) -> Config:
     """
@@ -266,8 +264,11 @@ def build_config(args) -> Config:
 
         debug=getattr(args, 'debug', False),
         
-        # ACME caching
-        acme_cache_enabled=not getattr(args, 'no_acme_cache', False),
+        # ACME caching (CLI --no-acme-cache flag overrides fi_settings default)
+        acme_cache_enabled=(
+            False if getattr(args, 'no_acme_cache', False)
+            else fi_settings.ACME_CACHE_ENABLED
+        ),
         acme_cache_dir=get_with_fallback(args, 'acme_cache_dir', fi_settings.ACME_CACHE_DIR),
     )
 

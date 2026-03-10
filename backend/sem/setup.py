@@ -51,41 +51,63 @@ def open_sem(cfg: Config, log_ctx: Dict) -> Tuple[SemTransport, SemProtocol]:
     # Instantiate protocol
     proto = SemProtocol(tr=transport)
 
-    # Preflight test if enabled
-    if getattr(console_settings, 'SEM_PREFLIGHT_TEST', True):
+    # Run SEM preflight test if required (fi_settings.SEM_PREFLIGHT_REQUIRED)
+    # FPGA needs time to boot after EBD generation before SEM IP responds
+    # Retry multiple times with delays to handle boot time
+    if cfg.sem_preflight_required:
         from fi.core.logging.events import log_sem_preflight_testing
+        import time
+        
         log_sem_preflight_testing()
-        try:
-            # Sync to prompt
-            proto.sync_prompt()
+        
+        # Get retry configuration from fi_settings
+        timeout = getattr(fi_settings, 'SEM_PREFLIGHT_TIMEOUT', 60.0)
+        retry_interval = getattr(fi_settings, 'SEM_PREFLIGHT_RETRY_INTERVAL', 5.0)
+        
+        start_time = time.time()
+        attempt = 0
+        last_error = None
+        
+        while time.time() - start_time < timeout:
+            attempt += 1
             
-            # Send status command to verify communication
-            status = proto.status()
-            
-            if not status:
-                log_error("SEM preflight test: No response to status command")
-                from fi.core.logging.events import log_sem_preflight_error
-                log_sem_preflight_error("no_response", cfg.sem_preflight_required)
+            try:
+                # Sync to prompt
+                proto.sync_prompt()
                 
-                # Check if preflight is required - abort or warn
-                if cfg.sem_preflight_required:
-                    transport.close()
-                    raise RuntimeError("SEM preflight failed: No response from SEM")
+                # Send status command to verify communication
+                status = proto.status()
+                
+                if status:
+                    # Success! SEM is responding
+                    from fi.core.logging.events import log_sem_preflight_ok
+                    log_sem_preflight_ok(len(status))
+                    break
+                else:
+                    last_error = "no_response"
+                    
+            except Exception as e:
+                last_error = str(e)
+            
+            # Failed this attempt - check if we should retry
+            elapsed = time.time() - start_time
+            if elapsed < timeout:
+                # Wait before retry
+                time.sleep(retry_interval)
             else:
-                from fi.core.logging.events import log_sem_preflight_ok
-                log_sem_preflight_ok(len(status))
-                
-        except RuntimeError:
-            # Re-raise our own RuntimeError (preflight required failure)
-            raise
-        except Exception as e:
-            log_error(f"SEM preflight test failed", exc=e)
-            from fi.core.logging.events import log_sem_preflight_error
-            log_sem_preflight_error(str(e), cfg.sem_preflight_required)
-            
-            # Check if preflight is required - abort or warn
-            if cfg.sem_preflight_required:
+                # Timeout exceeded - fail
+                log_error(f"SEM preflight exhausted all retries ({attempt} attempts over {elapsed:.1f}s)")
+                from fi.core.logging.events import log_sem_preflight_error
+                log_sem_preflight_error(last_error or "timeout", required=True)
                 transport.close()
-                raise RuntimeError(f"SEM preflight failed: {e}")
+                raise RuntimeError(f"SEM preflight failed after {attempt} attempts: {last_error}")
+        else:
+            # While loop completed without break - timeout exceeded
+            elapsed = time.time() - start_time
+            log_error(f"SEM preflight timeout after {attempt} attempts over {elapsed:.1f}s")
+            from fi.core.logging.events import log_sem_preflight_error
+            log_sem_preflight_error(last_error or "timeout", required=True)
+            transport.close()
+            raise RuntimeError(f"SEM preflight failed: timeout after {attempt} attempts")
 
     return transport, proto

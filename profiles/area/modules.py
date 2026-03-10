@@ -150,6 +150,16 @@ class ModulesAreaProfile(AreaProfileBase):
         
         # Parse ratio and repeat parameters
         ratio = float(self.args.get("ratio", 0.5))
+        
+        # Validate ratio is in valid range [0.0, 1.0]
+        if not 0.0 <= ratio <= 1.0:
+            raise ValueError(
+                f"Invalid ratio={ratio}. Must be in range [0.0, 1.0] where:\n"
+                f"  0.0 = all CONFIG targets (configuration memory)\n"
+                f"  1.0 = all REG targets (registers)\n"
+                f"  0.5 = 50/50 mix"
+            )
+        
         repeat = self.args.get("repeat", True)
         if isinstance(repeat, str):
             repeat = repeat.lower() in ("true", "1", "yes", "on")
@@ -177,6 +187,13 @@ class ModulesAreaProfile(AreaProfileBase):
             cfg=cfg,
             ratio_strict=cfg.ratio_strict if cfg else False
         )
+        
+        # Register all selected modules with pool for complete statistics
+        # This ensures modules with 0 targets (e.g., ALU with no registers/config bits)
+        # still appear in the pool statistics with {'CONFIG': 0, 'REG': 0}
+        # Convert pblock keys to RTL module names to match TargetSpec.module_name
+        rtl_module_names = [board_dict.targets[key].module or key for key in selected_modules]
+        pool.set_requested_modules(rtl_module_names)
         
         return pool
 
@@ -286,7 +303,8 @@ class ModulesAreaProfile(AreaProfileBase):
                 board_name=board_name,
                 ebd_path=ebd_path,
                 use_cache=cfg.acme_cache_enabled,
-                cache_dir=cfg.acme_cache_dir
+                cache_dir=cfg.acme_cache_dir,
+                module_name=module_name  # Pass module name for logging
             )
             
             config_targets = []

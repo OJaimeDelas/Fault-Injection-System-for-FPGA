@@ -89,3 +89,35 @@ def rect_contains_point(x: int, y: int, x_lo: int, y_lo: int, x_hi: int, y_hi: i
         True if point is within or on rectangle bounds
     """
     return x_lo <= x <= x_hi and y_lo <= y <= y_hi
+
+
+def ranges_overlap(a_min: int, a_max: int, b_min: int, b_max: int) -> bool:
+    """
+    Check if two inclusive ranges [a_min, a_max] and [b_min, b_max] overlap.
+    
+    Two ranges overlap if they share at least one common value. This handles
+    all cases including:
+    - Complete overlap (one range contains the other)
+    - Partial overlap (ranges intersect)
+    - Adjacent ranges (touching at boundaries)
+    
+    Args:
+        a_min: First range minimum (inclusive)
+        a_max: First range maximum (inclusive)
+        b_min: Second range minimum (inclusive)
+        b_max: Second range maximum (inclusive)
+    
+    Returns:
+        True if ranges overlap or touch
+    
+    Examples:
+        >>> ranges_overlap(0, 10, 5, 15)   # Partial overlap
+        True
+        >>> ranges_overlap(0, 10, 11, 20)  # No overlap
+        False
+        >>> ranges_overlap(0, 10, 10, 20)  # Adjacent/touching
+        True
+        >>> ranges_overlap(5, 8, 0, 20)    # Complete containment
+        True
+    """
+    return not (a_max < b_min or b_max < a_min)

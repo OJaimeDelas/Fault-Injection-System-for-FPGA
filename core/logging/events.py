@@ -832,3 +832,48 @@ def log_target_list_stats(stats: dict):
         _write_to_file(msg)
     if to_console:
         _write_to_console(msg)
+
+
+# =============================================================================
+# EBD Waiter Events
+# =============================================================================
+
+def log_ebd_waiting(ebd_path: str):
+    """
+    Log that the campaign is waiting for the EBD file to appear.
+
+    Called once when the EBD file is not yet present and polling begins.
+
+    Args:
+        ebd_path: Path to the EBD file being waited on
+    """
+    to_console, to_file = _should_log_event('ebd_waiting')
+    if not to_console and not to_file:
+        return
+
+    msg = message_formats.format_ebd_waiting(ebd_path)
+
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)
+
+
+def log_ebd_ready(ebd_path: str, elapsed_s: float):
+    """
+    Log that the EBD file is available (either already present or just appeared).
+
+    Args:
+        ebd_path: Path to the EBD file
+        elapsed_s: Seconds spent waiting (0.0 if file was already present)
+    """
+    to_console, to_file = _should_log_event('ebd_ready')
+    if not to_console and not to_file:
+        return
+
+    msg = message_formats.format_ebd_ready(ebd_path, elapsed_s)
+
+    if to_file:
+        _write_to_file(msg)
+    if to_console:
+        _write_to_console(msg)

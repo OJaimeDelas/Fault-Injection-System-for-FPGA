@@ -39,7 +39,11 @@ MINIMAL = [
     ('campaign_summary', True, True),
 
     ('injection', True, True),        # File only - one per injection
-    
+
+    # EBD waiter - needed to diagnose stalls before pool build
+    ('ebd_waiting', True, True),
+    ('ebd_ready', True, True),
+
     # Sync events - important lifecycle events
     ('sync_waiting', True, True),
     ('sync_ready', True, True),
@@ -78,7 +82,11 @@ NORMAL = [
     ('systemdict_load', True, True),
     ('board_resolution', True, True),
     ('sem_preflight', True, True),
-    
+
+    # EBD waiter - important to know when pool build is stalled waiting for EBD
+    ('ebd_waiting', True, True),
+    ('ebd_ready', True, True),
+
     # Sync events - important to see sync status
     ('sync_waiting', True, True),
     ('sync_ready', True, True),
@@ -140,7 +148,11 @@ VERBOSE = [
     ('systemdict_load', True, True),
     ('board_resolution', True, True),
     ('sem_preflight', True, True),
-    
+
+    # EBD waiter - all visible in verbose
+    ('ebd_waiting', True, True),
+    ('ebd_ready', True, True),
+
     # Sync events - all visible
     ('sync_waiting', True, True),
     ('sync_ready', True, True),

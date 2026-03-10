@@ -92,7 +92,8 @@ class AcmeEngine:
     def expand_region_to_config_bits(
         self,
         region_spec: Optional[Dict[str, Any]] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
+        module_name: Optional[str] = None
     ) -> List[str]:
         """
         Expand a region description into configuration-bit addresses.
@@ -109,6 +110,9 @@ class AcmeEngine:
         
         use_cache:
             Whether to use cached results if available (default: True)
+        
+        module_name:
+            Optional module name for logging (e.g., "alu", "controller")
 
         Returns
         -------
@@ -120,11 +124,11 @@ class AcmeEngine:
         -----
         • Device-wide cache key: (board, ebd_file, size, mtime, path)
         • Region cache key: (board, ebd_file, x_lo, y_lo, x_hi, y_hi)
-        • Filtering accuracy depends on board-specific la_to_xy() mapping
+        • Filtering accuracy depends on board-specific la_to_clock_region_bounds() mapping
         """
         # Handle device-wide case (no filtering)
         if region_spec is None:
-            return self._expand_device_wide(use_cache=use_cache)
+            return self._expand_device_wide(use_cache=use_cache, module_name=module_name)
         
         # Extract coordinates from region_spec
         try:
@@ -162,6 +166,8 @@ class AcmeEngine:
             if cached is not None:
                 # Log cache hit using event logger (shows in console)
                 region_str = f"[{x_lo},{y_lo},{x_hi},{y_hi}]"
+                if module_name:
+                    region_str = f"{region_str} ({module_name})"
                 log_acme_cache_hit(region_str, len(cached))
                 return cached
                         
@@ -193,16 +199,19 @@ class AcmeEngine:
         
         # Log expansion using event logger (shows in console)
         region_str = f"[{x_lo},{y_lo},{x_hi},{y_hi}]"
+        if module_name:
+            region_str = f"{region_str} ({module_name})"
         log_acme_expansion(region_str, len(addresses))
 
         return addresses
     
-    def _expand_device_wide(self, use_cache: bool = True) -> List[str]:
+    def _expand_device_wide(self, use_cache: bool = True, module_name: Optional[str] = None) -> List[str]:
         """
         Generate device-wide addresses (no region filtering).
         
         Args:
             use_cache: Whether to use cached results
+            module_name: Optional module name for logging
         
         Returns:
             List of all device addresses
@@ -224,7 +233,10 @@ class AcmeEngine:
             cached = read_cached_addresses(cache_path)
             if cached is not None:
                 # Log cache hit using event logger (shows in console)
-                log_acme_cache_hit("device-wide", len(cached))
+                region_str = "device-wide"
+                if module_name:
+                    region_str = f"{region_str} ({module_name})"
+                log_acme_cache_hit(region_str, len(cached))
                 return cached
         
         # Cache miss or disabled - parse EBD
@@ -248,7 +260,10 @@ class AcmeEngine:
                 )
         
         # Log expansion using event logger (shows in console)
-        log_acme_expansion("device-wide", len(addresses))
+        region_str = "device-wide"
+        if module_name:
+            region_str = f"{region_str} ({module_name})"
+        log_acme_expansion(region_str, len(addresses))
 
         return addresses
     
@@ -256,13 +271,23 @@ class AcmeEngine:
         """
         Filter device addresses to only those within specified region.
         
+        Uses clock region overlap for Y-axis filtering since exact Y coordinate
+        cannot be determined from LA alone. X-axis filtering is precise.
+        
         Args:
             x_lo, y_lo: Minimum coordinates (inclusive)
             x_hi, y_hi: Maximum coordinates (inclusive)
         
         Returns:
             List of addresses within region
+        
+        Algorithm:
+            1. For each LFA, unpack to get LA (linear address)
+            2. Convert LA to (x, y_min_clock, y_max_clock) using board mapping
+            3. Accept if X in range AND clock region overlaps Y range
         """
+        from fi.backend.acme.geometry import ranges_overlap
+        
         addresses: List[str] = []
         filtered_count = 0
         total_count = 0
@@ -274,14 +299,27 @@ class AcmeEngine:
                 # Unpack LFA to get linear frame address
                 la, word, bit = unpack_lfa(lfa)
                 
-                # Map to physical coordinates
-                x, y = self._board.la_to_xy(la)
-                
-                # Check if within region bounds
-                if rect_contains_point(x, y, x_lo, y_lo, x_hi, y_hi):
-                    addresses.append(str(lfa).strip().upper())
+                # Map to X coordinate (precise) and clock region Y bounds (range)
+                # Use clock region bounds method if available, fallback to point mapping
+                if hasattr(self._board, 'la_to_clock_region_bounds'):
+                    x, y_min_clock, y_max_clock = self._board.la_to_clock_region_bounds(la)
+                    
+                    # Check if X is in range AND clock region overlaps pblock Y range
+                    x_match = x_lo <= x <= x_hi
+                    y_match = ranges_overlap(y_min_clock, y_max_clock, y_lo, y_hi)
+                    
+                    if x_match and y_match:
+                        addresses.append(str(lfa).strip().upper())
+                    else:
+                        filtered_count += 1
                 else:
-                    filtered_count += 1
+                    # Fallback to old point-based method for boards without clock region support
+                    x, y = self._board.la_to_xy(la)
+                    
+                    if rect_contains_point(x, y, x_lo, y_lo, x_hi, y_hi):
+                        addresses.append(str(lfa).strip().upper())
+                    else:
+                        filtered_count += 1
             
             except Exception as e:
                 # Log and skip invalid LFAs
